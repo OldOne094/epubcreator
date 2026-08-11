@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -65,7 +66,11 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_menu()
 
-        apply_theme(self, self._theme)
+        # الثيم يُطبَّق على مستوى التطبيق (لا النافذة) حتى لا يظلّل تبديله؛
+        # فشريط النمط الخاص بالنافذة يتفوّق على النمط العام ويمنع ظهور التغيير
+        qapp = QApplication.instance() or self
+        apply_theme(qapp, self._theme)
+        self.setStyleSheet("")  # إزالة أي نمط عالق من نافذة قديمة
         self.sidebar.set_theme_label(self._theme)
 
         self.statusBar().showMessage("جاهز: استورد ملفات للبدء، أو اسحبها وأفلتها داخل النافذة")
@@ -192,21 +197,30 @@ class MainWindow(QMainWindow):
 
     def _show_about(self) -> None:
         from app import __version__
+        from app.resources import asset_path
+        from PySide6.QtGui import QPixmap
 
-        QMessageBox.information(
-            self,
-            "حول EPubCreator",
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("حول EPubCreator")
+        logo = asset_path("logo.png")
+        if logo.exists():
+            pix = QPixmap(str(logo)).scaled(
+                96, 96, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            dialog.setIconPixmap(pix)
+        dialog.setText(
             f"مصنّع كتب EPUB لسطح المكتب\n"
             f"الإصدار {__version__}\n"
             "دعم عربي احترافي (RTL) · EPUB3/EPUB2 · 5 قوالب جاهزة\n"
-            "Python + PySide6",
+            "Python + PySide6"
         )
+        dialog.exec()
 
     def _check_updates(self) -> None:
         """فحص التحديثات في خلفية وعرض النتيجة عند اكتمالها."""
         from app.workers import UpdateCheckJob
 
-        url = str(self._config.get("update_url", "") or "")
+        url = app_settings.effective_update_url(self._config)
         self.statusBar().showMessage("جارٍ فحص التحديثات…")
         job = UpdateCheckJob(url)
         job.signals.finished.connect(self._on_update_check_done)
@@ -266,9 +280,9 @@ class MainWindow(QMainWindow):
 
     def _toggle_theme(self) -> None:
         self._theme = "dark" if self._theme == "light" else "light"
-        from PySide6.QtWidgets import QApplication
-
-        apply_theme(QApplication.instance() or self, self._theme)
+        qapp = QApplication.instance() or self
+        apply_theme(qapp, self._theme)
+        self.setStyleSheet("")  # لا نمط خاص بالنافذة يوقف انتشار الثيم
         self.sidebar.set_theme_label(self._theme)
         app_settings.set_config(theme=self._theme)
 

@@ -43,6 +43,20 @@ def test_apply_theme_sets_stylesheet():
 def test_main_window_has_toggle():
     win = MainWindow()
     assert win._theme == "light"
+    # لا نمط خاص بالنافذة يظلّل الثيم العام (سبب تعطل التبديل سابقًا)
+    assert win.styleSheet() == ""
     win._toggle_theme()
     assert win._theme == "dark"
     assert "16171a" in app.styleSheet()
+    assert win.styleSheet() == ""
+
+
+def test_toggle_theme_is_visible_via_app_stylesheet():
+    """قبل الإصلاح كان الإقلاع يطبّق النمط على النافذة فيظلّ الفاتح ثابتًا."""
+    from app.ui.themes import stylesheet
+
+    win = MainWindow()
+    before = app.styleSheet()
+    win._toggle_theme()
+    assert app.styleSheet() != before
+    assert app.styleSheet() == stylesheet("dark")

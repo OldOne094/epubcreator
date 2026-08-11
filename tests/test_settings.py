@@ -52,3 +52,12 @@ def test_window_geometry_corrupt_returns_none(tmp_path):
     app_settings.set_config_override(tmp_path / "config.json")
     app_settings.save_config({**app_settings.DEFAULT_CONFIG, "geometry": "@@@not-base64@@@"})
     assert app_settings.window_geometry_bytes() is None
+
+
+def test_effective_update_url_falls_back_when_empty():
+    from app.settings import DEFAULT_CONFIG, effective_update_url
+
+    assert effective_update_url({"update_url": ""}) == DEFAULT_CONFIG["update_url"]
+    assert effective_update_url({"update_url": "  "}) == DEFAULT_CONFIG["update_url"]
+    assert effective_update_url({}) == DEFAULT_CONFIG["update_url"]
+    assert effective_update_url({"update_url": "me/repo"}) == "me/repo"

@@ -117,6 +117,15 @@ def test_default_update_url_forms_github_api_url():
     assert url == "https://api.github.com/repos/OldOne094/epubcreator/releases/latest"
 
 
+def test_app_version_and_assets_present():
+    from app import __version__
+    from app.resources import asset_path
+
+    assert __version__ == "0.3.0"
+    assert asset_path("logo.png").is_file()
+    assert asset_path("EPubCreator.ico").is_file()
+
+
 # ------------------------------------------------- GitHub Releases API ---
 
 

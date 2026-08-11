@@ -65,4 +65,5 @@ exe = EXE(
     upx=False,                 # يبقى الحجم مستقرًا دون اعتماد UPX
     console=False,            # تطبيق GUI بلا نافذة طرفية
     disable_windowed_traceback=False,
+    icon="app/assets/EPubCreator.ico",
 )

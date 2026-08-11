@@ -85,6 +85,19 @@ def get_config(key: str, default: object = None) -> object:
     return load_config().get(key, default)
 
 
+def effective_update_url(config: dict | None = None) -> str:
+    """رابط فحص التحديثات، مع تراجع إلى الافتراضي إذا أُفرغ.
+
+    قد تحمل config.json قديمة `"update_url": ""` تتفوّق على الافتراضي عند الدمج؛
+    لذلك تُعامَل القيمة الفارغة بما يحتفظ بالإعداد الافتراضي للمستودع.
+    """
+    cfg = config if config is not None else load_config()
+    url = str(cfg.get("update_url", "") or "").strip()
+    if not url:
+        url = str(DEFAULT_CONFIG.get("update_url", "") or "").strip()
+    return url
+
+
 def set_config(**values: object) -> None:
     """تحديث مفتاح مفتاحي، ثم الحفظ. يبقي ما يردّ في load_config افتراضيًّا."""
     cfg = load_config()

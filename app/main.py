@@ -39,6 +39,13 @@ def main() -> int:
     app.setStyle("Fusion")
     app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 
+    from app.resources import asset_path
+    from PySide6.QtGui import QIcon
+
+    logo = asset_path("logo.png")
+    if logo.exists():
+        app.setWindowIcon(QIcon(str(logo)))
+
     from app.ui.themes import apply_theme
 
     apply_theme(app, "light")

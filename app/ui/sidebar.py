@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import __version__
+from app.resources import asset_path
 
 #: ترتيب الصفحات وخطوات سير العمل (من الرئيسية إلى التصدير)
 NAV_ITEMS: list[tuple[str, str]] = [
@@ -41,7 +42,19 @@ class Sidebar(QWidget):
         outer.setContentsMargins(14, 18, 14, 14)
         outer.setSpacing(4)
 
-        # ---- العنوان ----
+        # ---- الشعار والعنوان ----
+        logo_path = asset_path("logo.png")
+        if logo_path.exists():
+            from PySide6.QtGui import QPixmap
+
+            logo = QLabel()
+            pix = QPixmap(str(logo_path)).scaled(
+                64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            logo.setPixmap(pix)
+            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            outer.addWidget(logo)
+
         brand = QLabel("EPubCreator")
         brand.setObjectName("PageTitle")
         outer.addWidget(brand)
