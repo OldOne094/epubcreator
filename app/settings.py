@@ -30,7 +30,7 @@ DEFAULT_CONFIG: dict[str, object] = {
     "theme": "light",
     "recent_projects": [],
     "geometry": "",
-    "update_url": "",
+    "update_url": "OldOne094/epubcreator",
 }
 
 _listener_ref: logging.handlers.QueueListener | None = None

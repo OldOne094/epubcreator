@@ -107,7 +107,14 @@ def test_updatecheckjob_emits_result(tmp_path):
 def test_update_url_in_default_config():
     from app.settings import DEFAULT_CONFIG
 
-    assert DEFAULT_CONFIG["update_url"] == ""
+    assert DEFAULT_CONFIG["update_url"] == "OldOne094/epubcreator"
+
+
+def test_default_update_url_forms_github_api_url():
+    from app.settings import DEFAULT_CONFIG
+
+    url = resolve_url(str(DEFAULT_CONFIG["update_url"]))
+    assert url == "https://api.github.com/repos/OldOne094/epubcreator/releases/latest"
 
 
 # ------------------------------------------------- GitHub Releases API ---
