@@ -1,0 +1,2 @@
+# قوالب الكتب الجاهزة (metadata defaults + css).
+# في M6: novel-ar, novel-en, academic, children, articles.

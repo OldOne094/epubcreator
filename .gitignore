@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+*.spec.bak
+*.epub
+.pytest_cache/
+
+# صفحة الويب المعاينة (لا تُنشر على GitHub)
+PROJECT_MAP.html
