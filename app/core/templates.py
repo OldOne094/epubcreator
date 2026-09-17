@@ -51,10 +51,14 @@ def build_font_faces(fonts: list[tuple[str, str]]) -> str:
     """
     if not fonts:
         return ""
-    return "\n".join(
-        f"@font-face {{ font-family: '{name}'; src: url('fonts/{file}'); }}"
-        for name, file in fonts
-    )
+    from urllib.parse import quote as _quote
+
+    rules = []
+    for name, file in fonts:
+        safe_name = "".join(ch for ch in str(name) if ch.isalnum() or ch in (" ", "-", "_"))[:64] or "font"
+        safe_file = _quote(str(file), safe="")
+        rules.append(f"@font-face {{ font-family: '{safe_name}'; src: url('fonts/{safe_file}'); }}")
+    return "\n".join(rules)
 
 
 def template_names() -> list[str]:
@@ -65,20 +69,47 @@ def template_label(name: str) -> str:
     return _TEMPLATES.get(name, {}).get("label", name)
 
 
+def _sanitize_css_value(value: str, allowed: set[str], fallback: str) -> str:
+    v = (value or "").strip().lower()
+    return v if v in allowed else fallback
+
+
+def _sanitize_font_name(value: str, fallback: str = "Amiri") -> str:
+    v = "".join(ch for ch in (value or "") if ch.isalnum() or ch in (" ", "-", "_")).strip()[:64]
+    return v or fallback
+
+
 def build_css(options) -> str:  # noqa: ANN001
     """CSS كامل = أساس (اتجاه/خط/فقرة) + أجزاء القالب إن وُجد.
 
     تُستخدم كل إعدادات الفقرة: المحاذاة، الهوامش، اللون، المسافات، الإزاحة.
     """
+    import re as _re
+
     pf = options.paragraph
-    color_rule = f"color: {pf.color}; " if pf.color else ""
+    alignment = _sanitize_css_value(pf.alignment, {"left", "right", "center", "justify", "start", "end"}, "justify")
+    direction = _sanitize_css_value(options.direction, {"rtl", "ltr"}, "rtl")
+    title_font = _sanitize_font_name(options.title_font)
+    body_font = _sanitize_font_name(options.body_font)
+    # قيم القياس: رقم + وحدة آمنة فقط
+    def _measure(v: str, fb: str) -> str:
+        v = (v or "").strip().lower()
+        return v if _re.fullmatch(r"\d+(\.\d+)?(em|rem|px|pt|%|)", v) else fb
+    line_height = _measure(pf.line_height, "1.8")
+    spacing_after = _measure(pf.spacing_after, "1em")
+    first_indent = _measure(pf.first_line_indent, "1.5em")
+    font_size = _measure(pf.font_size, "1em")
+    margin_top = _measure(pf.margin_top, "0")
+    margin_bottom = _measure(pf.margin_bottom, "0")
+    color = (pf.color or "").strip()
+    color_rule = f"color: {color}; " if _re.fullmatch(r"#[0-9a-fA-F]{3,8}|[a-z]+", color) else ""
     base = f"""@namespace epub "http://www.idpf.org/2007/ops";
-body {{ direction: {options.direction}; line-height: {pf.line_height};
-       margin-top: {pf.margin_top}; margin-bottom: {pf.margin_bottom}; }}
-p {{ text-align: {pf.alignment}; line-height: {pf.line_height}; margin: 0 0 {pf.spacing_after};
-    text-indent: {pf.first_line_indent}; font-size: {pf.font_size}; {color_rule}}}
-h1, h2, h3 {{ font-family: '{options.title_font}', serif; }}
-body, p {{ font-family: '{options.body_font}', serif; }}
+body {{ direction: {direction}; line-height: {line_height};
+       margin-top: {margin_top}; margin-bottom: {margin_bottom}; }}
+p {{ text-align: {alignment}; line-height: {line_height}; margin: 0 0 {spacing_after};
+    text-indent: {first_indent}; font-size: {font_size}; {color_rule}}}
+h1, h2, h3 {{ font-family: '{title_font}', serif; }}
+body, p {{ font-family: '{body_font}', serif; }}
 """
     extra = _TEMPLATES.get(options.template or "", {}).get("css", "")
     if options.custom_css:

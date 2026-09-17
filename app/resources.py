@@ -8,9 +8,21 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_ASSETS_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "assets"
+_DEV_ASSETS = Path(__file__).resolve().parent / "assets"
+
+
+def _frozen_base() -> Path | None:
+    base = getattr(sys, "_MEIPASS", None)
+    return Path(base) if base else None
 
 
 def asset_path(*parts: str) -> Path:
     """مسار داخل مجلد assets (مثل asset_path("logo.png"))."""
-    return _ASSETS_DIR.joinpath(*parts)
+    frozen = _frozen_base()
+    if frozen is not None:
+        # المخطط يضمّن datas=[("app/assets","app/assets")] → جرّب app/assets أولًا
+        candidate = frozen / "app" / "assets" / Path(*parts)
+        if candidate.exists():
+            return candidate
+        return frozen / "assets" / Path(*parts)
+    return _DEV_ASSETS.joinpath(*parts)

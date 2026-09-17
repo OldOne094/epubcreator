@@ -22,6 +22,7 @@ class BookState:
     _on_change: "callable | None" = None  # noqa: F821
     _undo: list = field(default_factory=list)
     _redo: list = field(default_factory=list)
+    _typing_snapshot_taken: bool = field(default=False, repr=False)
 
     # -------------------------------------------------------- تراجع ---
     def _snapshot(self) -> tuple[Book, int]:
@@ -32,6 +33,7 @@ class BookState:
         if len(self._undo) > _MAX_UNDO:
             self._undo.pop(0)
         self._redo.clear()
+        self._typing_snapshot_taken = False
 
     def _restore(self, book: Book, index: int) -> None:
         self.book = book
@@ -46,6 +48,7 @@ class BookState:
         self._redo.append(self._snapshot())
         book, index = self._undo.pop()
         self._restore(book, index)
+        self._typing_snapshot_taken = False
         self._notify()
 
     def redo(self) -> None:
@@ -55,14 +58,28 @@ class BookState:
         self._undo.append(self._snapshot())
         book, index = self._redo.pop()
         self._restore(book, index)
+        self._typing_snapshot_taken = False
         self._notify()
 
     # -------------------------------------------------------- حالة ---
     def set_book(self, book: Book) -> None:
         self._push_undo()
-        self.book = book
+        self.book = copy.deepcopy(book)
         self.current_index = 0
         self._notify()
+
+    def notify_metadata_changed(self) -> None:
+        """تغيير الميتاداتا: لقطة تراجع واحدة لكل سلسلة تحرير ثم إشعار."""
+        if not self._typing_snapshot_taken:
+            self._undo.append(self._snapshot())
+            if len(self._undo) > _MAX_UNDO:
+                self._undo.pop(0)
+            self._redo.clear()
+            self._typing_snapshot_taken = True
+        self._notify()
+
+    def _end_typing_run(self) -> None:
+        self._typing_snapshot_taken = False
 
     def current_chapter(self) -> Chapter | None:
         if 0 <= self.current_index < len(self.book.chapters):
@@ -72,24 +89,37 @@ class BookState:
     def select_chapter(self, index: int) -> None:
         if 0 <= index < len(self.book.chapters) and index != self.current_index:
             self.current_index = index
+            self._typing_snapshot_taken = False
             self._notify()
 
     def update_current_body(self, body: str) -> None:
         ch = self.current_chapter()
         if ch is not None and ch.body != body:
+            if not self._typing_snapshot_taken:
+                self._undo.append(self._snapshot())
+                if len(self._undo) > _MAX_UNDO:
+                    self._undo.pop(0)
+                self._redo.clear()
+                self._typing_snapshot_taken = True
             ch.body = body
             self._notify()
 
     def update_current_title(self, title: str) -> None:
         ch = self.current_chapter()
         if ch is not None and ch.title != title:
+            if not self._typing_snapshot_taken:
+                self._undo.append(self._snapshot())
+                if len(self._undo) > _MAX_UNDO:
+                    self._undo.pop(0)
+                self._redo.clear()
+                self._typing_snapshot_taken = True
             ch.title = title
             self._notify()
 
     def add_chapter(self, chapter: "Chapter | None" = None, index: "int | None" = None) -> None:  # noqa: F821
         """إضافة فصل (جديد أو منقول) واختياره تلقائيًّا."""
         self._push_undo()
-        ch = chapter or Chapter()
+        ch = copy.deepcopy(chapter) if chapter is not None else Chapter()
         if index is None:
             self.book.chapters.append(ch)
             self.current_index = len(self.book.chapters) - 1

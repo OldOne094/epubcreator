@@ -5,7 +5,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from zipfile import ZIP_STORED, ZipFile
+from urllib.parse import quote
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from xml.sax.saxutils import escape as _xml_escape
 
@@ -47,10 +48,24 @@ def _font_assets(fonts_dir: Path | None) -> tuple[str, list[tuple[str, str, Path
     return faces, items
 
 
+def _safe_lang(raw: str | None) -> str:
+    """تنظيف رمز اللغة إلى BCP47 آمن (ar/en/...) — أي قيمة حرة تُرد إلى ar."""
+    s = (raw or "ar").strip().lower().replace("_", "-")
+    if re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})*", s):
+        return s
+    # خرائط شائعة من أسماء عربية
+    mapping = {"العربية": "ar", "الإنجليزية": "en", "الفرنسية": "fr",
+               "الألمانية": "de", "الإسبانية": "es", "التركية": "tr", "الأردية": "ur"}
+    return mapping.get(raw or "", "ar")
+
+
 def _slug(index: int, title: str) -> str:
-    """اسم فريد/آمن لملف الفصل."""
+    """اسم فريد/آمن لملف الفصل (ASCII فقط لتتوافق مع كل القارئات)."""
     base = "".join(ch for ch in title.strip() if ch.isalnum())[:24] or "chapter"
-    return f"k{index}_{base}"
+    safe = quote(base, safe="")
+    if not safe or len(safe) > 48:
+        safe = "chapter"
+    return f"k{index}_{safe}"
 
 
 def _css(options) -> str:  # noqa: ANN001
@@ -60,8 +75,11 @@ def _css(options) -> str:  # noqa: ANN001
 
 def chapter_xhtml(chapter, index: int, options, css_href: str = "style.css", lang: str = "ar") -> str:
     """فصل → مستند XHTML مستقل (EPUB3)."""
+    lang = _safe_lang(lang)
     title = _xml_escape(chapter.title)
     paras = split_paragraphs(chapter.body)
+    if not paras and not chapter.title.strip():
+        paras = ["…"]
     paras_html = "\n".join(f"<p>{_xml_escape(p)}</p>" for p in paras)
     body = (f"<h1>{title}</h1>" if chapter.title.strip() else "") + paras_html
     direction = options.direction
@@ -77,8 +95,10 @@ def chapter_xhtml(chapter, index: int, options, css_href: str = "style.css", lan
     )
 
 
-def nav_xhtml(chapters, title_root: str = "فهرس") -> str:
+def nav_xhtml(chapters, title_root: str = "فهرس", lang: str = "ar", direction: str = "rtl") -> str:
     """فهرس التنقل EPUB3 (nav)."""
+    lang = _safe_lang(lang)
+    direction = direction if direction in ("rtl", "ltr") else "rtl"
     items = "\n".join(
         f'<li><a href="{_slug(i, c.title)}.xhtml">{_xml_escape(c.title or "(بلا عنوان)")}</a></li>'
         for i, c in enumerate(chapters)
@@ -86,7 +106,7 @@ def nav_xhtml(chapters, title_root: str = "فهرس") -> str:
     return (
         f'<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<html xmlns="http://www.w3.org/1999/xhtml" '
-        f'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ar" lang="ar" dir="rtl">\n'
+        f'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="{lang}" lang="{lang}" dir="{direction}">\n'
         f"<head><title>{_xml_escape(title_root)}</title></head>\n"
         f"<body>\n<nav epub:type=\"toc\" id=\"toc\"><h1>{_xml_escape(title_root)}</h1>\n"
         f"<ol>\n{items}\n</ol></nav>\n</body>\n</html>\n"
@@ -155,9 +175,11 @@ def _meta_fields(meta, epub_version: int) -> str:  # noqa: ANN001
 def content_opf(book: Book, chapter_files: list[str], has_cover: bool, cover_href: str | None, epub_version: int = 3, font_files: list[tuple[str, str]] | None = None) -> str:
     """content.opf: metadata + manifest + spine + cover + خطوط مضمّنة."""
     meta = book.metadata
-    lang = meta.language or "ar"
+    lang = _safe_lang(meta.language)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    identifier = meta.isbn or f"urn:uuid:{uuid.uuid4()}"
+    identifier = meta.isbn.strip() or f"urn:uuid:{uuid.uuid4()}"
+    if epub_version not in (2, 3):
+        epub_version = 3
     version = "3.0" if epub_version == 3 else "2.0"
 
     manifest = [
@@ -184,6 +206,10 @@ def content_opf(book: Book, chapter_files: list[str], has_cover: bool, cover_hre
     creator = f"<dc:creator>{_xml_escape(meta.author)}</dc:creator>" if meta.author else ""
     extra_meta = _meta_fields(meta, epub_version)
     spine_attr = ' toc="ncx"' if epub_version == 2 else ""
+    if epub_version == 3:
+        date_meta = f'<meta property="dcterms:modified">{_xml_escape(now)}</meta>'
+    else:
+        date_meta = f"<dc:date>{_xml_escape(now)}</dc:date>"
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="{_OPF_NS}" version="{version}" unique-identifier="uid" xml:lang="{lang}">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -192,7 +218,7 @@ def content_opf(book: Book, chapter_files: list[str], has_cover: bool, cover_hre
     <dc:language>{_xml_escape(lang)}</dc:language>
     {creator}
     {extra_meta}
-    <meta property="dcterms:modified">{_xml_escape(now)}</meta>
+    {date_meta}
   </metadata>
   <manifest>
     {chr(10).join(manifest)}
@@ -227,6 +253,13 @@ class EpubWriter:
         opts = self.book.options
         chapters = self.book.chapters
 
+        if not meta.title.strip():
+            raise ValueError("عنوان الكتاب إلزامي قبل التصدير")
+        if not chapters:
+            raise ValueError("الكتاب بلا فصول — أضف فصلًا واحدًا على الأقل")
+        if opts.epub_version not in (2, 3):
+            opts.epub_version = 3
+
         self._progress(5, "تحضير الملفات…")
         chapter_files = [_slug(i, c.title) + ".xhtml" for i, c in enumerate(chapters)]
 
@@ -236,7 +269,9 @@ class EpubWriter:
         )
         if has_cover:
             cover_ext = (opts.image_format or "jpeg").lower()
-            if cover_ext not in ("jpeg", "jpg", "png", "webp"):
+            if cover_ext == "jpg":
+                cover_ext = "jpeg"
+            if cover_ext not in ("jpeg", "png", "webp"):
                 cover_ext = "jpeg"
             cover_href = f"cover.{cover_ext}"
 
@@ -246,34 +281,47 @@ class EpubWriter:
             font_faces, font_items = _font_assets(self._fonts_dir)
         if font_faces:
             css = font_faces + "\n" + css
-        nav = nav_xhtml(chapters, meta.title or "فهرس")
+        lang = _safe_lang(meta.language)
+        nav = nav_xhtml(chapters, meta.title or "فهرس", lang=lang, direction=opts.direction)
         v2 = opts.epub_version == 2
         opf = content_opf(
             self.book, chapter_files, has_cover, cover_href,
             epub_version=opts.epub_version,
             font_files=[(media, href) for media, href, _ in font_items],
         )
+        ncx_uid = meta.isbn.strip() or f"urn:uuid:{uuid.uuid4()}"
 
         self._progress(25, "كتابة الهيكل (OPF/NAV/CSS)…")
-        with ZipFile(destination, "w") as zf:
-            # mimetype أولًا، بدون ضغط (شرط رسمي EPUB)
-            zf.writestr("mimetype", _MIMETYPE, compress_type=ZIP_STORED)
-            zf.writestr("META-INF/container.xml", _CONTAINER)
-            zf.writestr("OEBPS/content.opf", opf)
-            if v2:
-                zf.writestr("OEBPS/toc.ncx", toc_ncx(chapters, meta.isbn or "", meta.title or "فهرس"))
-            else:
-                zf.writestr("OEBPS/nav.xhtml", nav)
-            zf.writestr("OEBPS/style.css", css)
-            total = len(chapters) or 1
-            for i, ch in enumerate(chapters):
-                self._progress(30 + int(55 * i / total), f"كتابة الفصل {i + 1}…")
-                zf.writestr(f"OEBPS/{chapter_files[i]}", chapter_xhtml(ch, i, opts, "style.css", meta.language))
-            for _, href, src in font_items:
-                zf.writestr(f"OEBPS/{href}", src.read_bytes())
-            if has_cover:
-                self._progress(90, "توليد الغلاف…")
-                zf.writestr(f"OEBPS/{cover_href}", self._cover_bytes(opts))
+        destination = Path(destination)
+        tmp_path = destination.with_suffix(destination.suffix + ".tmp")
+        try:
+            with ZipFile(tmp_path, "w", compression=ZIP_DEFLATED) as zf:
+                # mimetype أولًا، بدون ضغط (شرط رسمي EPUB)
+                zf.writestr("mimetype", _MIMETYPE, compress_type=ZIP_STORED)
+                zf.writestr("META-INF/container.xml", _CONTAINER, compress_type=ZIP_DEFLATED)
+                zf.writestr("OEBPS/content.opf", opf, compress_type=ZIP_DEFLATED)
+                if v2:
+                    zf.writestr("OEBPS/toc.ncx", toc_ncx(chapters, ncx_uid, meta.title or "فهرس"), compress_type=ZIP_DEFLATED)
+                else:
+                    zf.writestr("OEBPS/nav.xhtml", nav, compress_type=ZIP_DEFLATED)
+                zf.writestr("OEBPS/style.css", css, compress_type=ZIP_DEFLATED)
+                total = len(chapters) or 1
+                for i, ch in enumerate(chapters):
+                    self._progress(30 + int(55 * i / total), f"كتابة الفصل {i + 1}…")
+                    zf.writestr(f"OEBPS/{chapter_files[i]}", chapter_xhtml(ch, i, opts, "style.css", lang), compress_type=ZIP_DEFLATED)
+                for _, href, src in font_items:
+                    zf.writestr(f"OEBPS/{href}", src.read_bytes(), compress_type=ZIP_DEFLATED)
+                if has_cover:
+                    self._progress(90, "توليد الغلاف…")
+                    zf.writestr(f"OEBPS/{cover_href}", self._cover_bytes(opts), compress_type=ZIP_DEFLATED)
+        except Exception:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        tmp_path.replace(destination)
         self._progress(100, "اكتمل التصدير")
         return destination
 

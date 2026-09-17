@@ -39,15 +39,27 @@ class ImportJob(QRunnable):
         result = JobResult(ok=True)
         try:
             if len(self.paths) == 1:
-                result.books = [import_file(self.paths[0])]
+                try:
+                    result.books = [import_file(self.paths[0])]
+                except Exception as exc:  # noqa: BLE001
+                    result.ok = False
+                    result.errors.append(f"{self.paths[0].name}: {exc}")
             else:
-                result.books = import_batch(self.paths)
+                books: list[Book] = []
+                for p in self.paths:
+                    try:
+                        books.append(import_file(p))
+                    except Exception as exc:  # noqa: BLE001
+                        result.errors.append(f"{p.name}: {exc}")
+                result.books = books
+                result.ok = bool(books)
         except Exception as exc:  # noqa: BLE001 — تُبلَّغ للواجهة بلا إنهاء
             result.ok = False
             result.errors.append(str(exc))
-            self.signals.error.emit(str(exc))
-            return
+        # أبث finished دائمًا (مع نتائج جزئية) + error عند الفشل
         self.signals.finished.emit(result)
+        if not result.ok:
+            self.signals.error.emit("; ".join(result.errors))
 
 
 class ExportSignals(QObject):
@@ -63,7 +75,7 @@ class ExportJob(QRunnable):
 
     def __init__(self, book: Book, destination: Path) -> None:
         super().__init__()
-        # لقطة عميقة: لا تتأثر الكتابة بتحرير المستخدم أثناء البناء في الخيط
+        # لقطة عميقة لحظة الإنشاء: لا تتأثر الكتابة بتحرير المستخدم أثناء البناء
         self.book = copy.deepcopy(book)
         self.destination = destination
         self.signals = ExportSignals()

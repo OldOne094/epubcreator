@@ -19,8 +19,9 @@ def test_h2_split_multiple_chapters():
         "<h2>الفصل الثاني</h2><p>ب.</p></body>"
     )
     chapters, _, _ = html_to_chapters(html)
-    assert [c.title for c in chapters] == ["الفصل الأول", "الفصل الثاني"]
-    assert "مقدمة" not in "".join(c.body for c in chapters) or True  # preface غير في فصل
+    # المقدمة قبل أول عنوان تُحفظ كفصل مستقل بدل مسحها
+    assert [c.title for c in chapters] == ["", "الفصل الأول", "الفصل الثاني"]
+    assert "مقدمة" in chapters[0].body
 
 
 def test_removes_script_and_style():

@@ -40,10 +40,10 @@ def import_file(path: Path, merge_into_one: bool = False) -> Book:
     if kind is None:
         raise ValueError(f"unsupported file type: {path.suffix}")
 
-    source = _read_text_auto(path)
     if kind == "txt":
-        book = _book_from_plain(path, source)
+        book = _book_from_plain(path, _read_text_auto(path))
     elif kind in ("html", "markdown"):
+        source = _read_text_auto(path)
         html_text = source
         if kind == "markdown":
             from markdown_it import MarkdownIt
@@ -56,7 +56,8 @@ def import_file(path: Path, merge_into_one: bool = False) -> Book:
     else:
         raise NotImplementedError(f"import for {kind!r} is scheduled (M4)")
 
-    book.source_files.append(path)
+    if path not in book.source_files:
+        book.source_files.append(path)
     return book
 
 
@@ -106,18 +107,39 @@ def html_to_chapters(html_text: str) -> tuple[list[Chapter], str, str]:
     - تُرجع (chapters, direction, language) لمعايرة الاتجاه.
     """
     try:
-        tree = _lxml_html.fromstring(html_text)
+        fragments = _lxml_html.fragments_fromstring(html_text)
     except (ValueError, _ParserError):
         return [], "rtl", "ar"
-    if tree is None:
+    # fragments_fromstring قد يرجع سلسلة/عنصر واحد — وحّدها لقائمة
+    if isinstance(fragments, (str, bytes)):
+        fragments = [fragments]
+    else:
+        fragments = list(fragments)
+    if not fragments:
         return [], "rtl", "ar"
-    if tree.tag.lower() == "html":
-        root = tree
-    else:  # fragment
-        root = tree
+    wrapper = _lxml_html.Element("div")
+    for frag in fragments:
+        if isinstance(frag, str):
+            # نص حر بين العناصر — احفظه كفقرة
+            if frag.strip():
+                p = _lxml_html.Element("p")
+                p.text = frag
+                wrapper.append(p)
+        else:
+            wrapper.append(frag)
+    root = wrapper
     _sanitize_html(root)
 
-    lang = root.get("lang") or "ar"
+    lang = "ar"
+    direction = "rtl"
+    # ابحث عن عنصر html الأصلي لالتقاط lang/dir إن وُجد
+    try:
+        tree = _lxml_html.fromstring(html_text)
+        html_el = tree if getattr(tree, "tag", "").lower() == "html" else tree.find(".//html")
+        if html_el is not None:
+            lang = html_el.get("lang") or lang
+    except (ValueError, _ParserError):
+        pass
     direction = root.get("dir") or ("rtl" if lang.lower().startswith("ar") else "ltr")
 
     chapters: list[Chapter] = []
@@ -125,31 +147,58 @@ def html_to_chapters(html_text: str) -> tuple[list[Chapter], str, str]:
     body_chunks: list[str] = []
 
     def flush() -> None:
-        nonlocal body_chunks
+        nonlocal body_chunks, current
         if current is not None:
             # كل عنصر HTML (p/li/...) فقرة مستقلة مفصولة بسطر فارغ
             current.body = "\n\n".join(body_chunks).strip("\n")
         if current is not None and (current.title or current.body):
             chapters.append(current)
+        elif current is None and body_chunks:
+            # مقدمة قبل أول عنوان — احفظها كفصل بدل مسحها
+            chapters.append(Chapter(title="مقدمة", body="\n\n".join(body_chunks).strip("\n")))
+        body_chunks = []
+        current = None
 
     for node in root.iter():
         tag = node.tag if isinstance(node.tag, str) else None
-        if tag in ("html", "body"):
+        if tag in ("html", "body", "div") and node is root:
             continue
         if tag in _HTML_CHAPTER_HEADINGS:
             flush()
-            body_chunks = []
             current = Chapter(title=_text(node).strip())
             continue
         if tag in _HTML_BODY_BLOCKS:
+            # تجنّب العد المزدوج: إن كان الأب كتلة نصية أُخذ نصها، تخطَّ الأبناء
+            # نأخذ الحاوية الأبعد فقط — تخطَّ أي كتلة داخلها كتلة نصية فرعية
+            if _has_block_child(node):
+                continue
             txt = _text(node)
             if txt:
+                if current is None:
+                    current = Chapter(title="")
                 body_chunks.append(txt)
-    flush()
+    # إغلاق آخر فصل/مقدمة
+    if current is not None:
+        current.body = "\n\n".join(body_chunks).strip("\n")
+        if current.title or current.body:
+            chapters.append(current)
+    elif body_chunks:
+        chapters.append(Chapter(title="مقدمة", body="\n\n".join(body_chunks).strip("\n")))
 
     if not chapters:
-        chapters = [Chapter(title="", body="\n\n".join(body_chunks).strip("\n"))]
+        chapters = [Chapter(title="", body="")]
     return chapters, direction, lang
+
+
+def _has_block_child(node) -> bool:  # noqa: ANN001
+    """هل تحتوي الكتلة على كتلة نصية فرعية؟ (لمنع العد المزدوج)."""
+    for child in node.iterchildren():
+        tag = child.tag if isinstance(child.tag, str) else None
+        if tag in _HTML_BODY_BLOCKS or tag in _HTML_CHAPTER_HEADINGS:
+            return True
+        if _has_block_child(child):
+            return True
+    return False
 
 
 def _text(node) -> str:  # noqa: ANN001
@@ -160,13 +209,27 @@ def _sanitize_html(root) -> None:  # noqa: ANN001
     for el in root.xpath(".//*"):
         tag = el.tag if isinstance(el.tag, str) else ""
         if tag in _HTML_DROP_TAGS:
-            el.getparent().remove(el)
+            parent = el.getparent()
+            if parent is not None:
+                parent.remove(el)
             continue
         for attr in list(el.attrib):
-            if attr.lower().startswith("on") or attr.lower() in _HTML_EVENT_ATTRS:
+            low = attr.lower()
+            if low.startswith("on") or low in _HTML_EVENT_ATTRS or low in ("formaction", "action"):
                 del el.attrib[attr]
-        if el.get("href", "").lower().startswith("javascript:"):
-            el.set("href", "#")
+                continue
+            if low in ("src", "href", "xlink:href", "{http://www.w3.org/1999/xlink}href"):
+                val = (el.get(attr) or "").strip().lower()
+                if val.startswith(("javascript:", "data:text/html", "vbscript:")):
+                    if low.startswith("src"):
+                        del el.attrib[attr]
+                    else:
+                        el.set(attr, "#")
+                continue
+            if low == "style":
+                val = (el.get(attr) or "").lower()
+                if "javascript:" in val or "expression(" in val or "vbscript:" in val:
+                    del el.attrib[attr]
 
 
 def _from_html(path: Path, html_text: str) -> Book:
@@ -182,14 +245,23 @@ def _from_html(path: Path, html_text: str) -> Book:
 def _read_text_auto(path: Path) -> str:
     """قراءة نص مع BOM والأخطاء الصغيرة (UTF-8 افتراضي)."""
     data = path.read_bytes()
-    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
-        return data.decode("utf-16", errors="replace")
     if data.startswith(b"\xef\xbb\xbf"):
         return data.decode("utf-8-sig", errors="replace")
+    if data.startswith(b"\xff\xfe\x00\x00") or data.startswith(b"\x00\x00\xfe\xff"):
+        return data.decode("utf-32", errors="replace")
+    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        return data.decode("utf-16", errors="replace")
     try:
         return data.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
-        return data.decode("cp1256", errors="replace")  # Windows Arabic
+        pass
+    # UTF-16LE/BE بلا BOM (شائع في ملفات Windows) — تحقق إرشادي
+    if len(data) >= 4 and sum(1 for b in data[:100:2] if b == 0) > 20:
+        try:
+            return data.decode("utf-16-le", errors="strict")
+        except UnicodeDecodeError:
+            pass
+    return data.decode("cp1256", errors="replace")  # Windows Arabic
 
 
 # ------------------------------------------------------------- DOCX (M2)
@@ -224,6 +296,10 @@ def docx_to_chapters(path: Path) -> list[Chapter]:
             current.body = "\n\n".join(body).strip("\n")
             if current.title or current.body:
                 chapters.append(current)
+        elif body:
+            # مقدمة قبل أول عنوان — احفظها بدل تجاهلها
+            chapters.append(Chapter(title="مقدمة", body="\n\n".join(body).strip("\n")))
+        body = []
 
     for para in doc.paragraphs:
         text = para.text.strip()

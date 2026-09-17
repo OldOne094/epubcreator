@@ -71,8 +71,10 @@ def save_config(config: dict) -> None:
     path = config_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as f:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
+        tmp.replace(path)
     except OSError:  # pragma: no cover
         logging.getLogger(__name__).exception("Config save failed")
 

@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
 
         self.preview = Preview()
         self._pool = QThreadPool()
+        self._jobs: list = []  # إبقاء مرجع للمهام حتى لا يبتلعها GC قبل انتهاء الإشارات
         self._build_ui()
         self._build_menu()
 
@@ -366,7 +367,22 @@ class MainWindow(QMainWindow):
         self._project_path = Path(path)
         return self._save_project()
 
+    def _confirm_discard(self) -> bool:
+        """تأكيد قبل تجاهل تغييرات غير محفوظة. True = تابع، False = ألغِ."""
+        if not self._dirty:
+            return True
+        answer = QMessageBox.question(
+            self,
+            "تجاهل التغييرات؟",
+            "لديك تغييرات غير محفوظة ستُفقد. هل تريد المتابعة؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def _open_project(self, path: Path | None = None) -> None:
+        if not self._confirm_discard():
+            return
         if path is None:
             folder = (
                 str(self._project_path.parent)
@@ -404,19 +420,23 @@ class MainWindow(QMainWindow):
         self._import_paths([Path(f) for f in files])
 
     def _import_paths(self, paths: list[Path]) -> None:
+        if not self._confirm_discard():
+            return
         self._set_busy(True, "جارٍ استيراد الملفات…")
         job = ImportJob(paths)
+        self._jobs.append(job)
         job.signals.finished.connect(self._on_import_done)
         job.signals.error.connect(self._on_import_error)
         self._pool.start(job)
 
     def _on_import_error(self, msg: str) -> None:
         self._set_busy(False)
-        error_dialog(self, f"تعذّر استيراد الملف: {msg}")
+        self.statusBar().showMessage(f"تعذّر استيراد بعض الملفات: {msg}")
 
     def _on_import_done(self, result) -> None:  # noqa: ANN001
         self._set_busy(False)
         if not result.books:
+            error_dialog(self, f"تعذّر الاستيراد: {'; '.join(result.errors) or 'لا كتب'}")
             return
         self.state.set_book(result.books[0])
         self.pages[PAGE_EDITOR].reload()
@@ -440,6 +460,10 @@ class MainWindow(QMainWindow):
         self.import_button.setEnabled(not busy)
         self.export_button.setEnabled(not busy)
         self.export_action.setEnabled(not busy)
+        try:
+            self.pages["export"].export_button.setEnabled(not busy)
+        except (KeyError, AttributeError):
+            pass
         if message:
             self.statusBar().showMessage(message)
 
@@ -470,8 +494,9 @@ class MainWindow(QMainWindow):
         if not self.state.book.chapters:
             return
         self._set_busy(True, "جارٍ بناء كتاب EPUB…")
-        # ExportJob يلتقط لقطة عميقة للكتاب فورًا (لا تتأثر بتحرير المستخدم)
+        # ExportJob يلتقط لقطة عميقة للكتاب داخل run (لا تتأثر بتحرير المستخدم)
         job = ExportJob(self.state.book, dest)
+        self._jobs.append(job)
         job.signals.finished.connect(self._on_export_done)
         job.signals.error.connect(self._on_export_error)
         job.signals.progress.connect(self.pages["export"].show_progress)
@@ -494,14 +519,28 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------- سحب وإفلات ---
     def dragEnterEvent(self, event) -> None:  # noqa: N802
-        if event.mimeData().hasUrls():
+        urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+        from app.core.importers import SUPPORTED_EXTENSIONS
+
+        ok = any(Path(u.toLocalFile()).suffix.lower() in SUPPORTED_EXTENSIONS for u in urls if u.isLocalFile())
+        if ok:
             event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dropEvent(self, event) -> None:  # noqa: N802
-        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+        from app.core.importers import SUPPORTED_EXTENSIONS
+
+        paths = [
+            Path(u.toLocalFile())
+            for u in event.mimeData().urls()
+            if u.isLocalFile() and Path(u.toLocalFile()).suffix.lower() in SUPPORTED_EXTENSIONS
+        ]
         if paths:
-            self._import_paths([Path(p) for p in paths])
-        event.acceptProposedAction()
+            self._import_paths(paths)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     # ------------------------------------------------------ إغلاق ---
     def closeEvent(self, event) -> None:  # noqa: N802

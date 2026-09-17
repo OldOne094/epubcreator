@@ -63,9 +63,6 @@ def _template_colors(template: str) -> dict[str, tuple[int, int, int]]:
     from app.core.templates import _TEMPLATES
 
     css = _TEMPLATES.get(template or "", {}).get("css", "")
-    colors.update(
-        bg=_FALLBACK_BG, fg=_FALLBACK_FG, accent=_FALLBACK_ACCENT
-    )
     for prop, key in (("background", "bg"), ("color", "fg")):
         m = re.search(rf"{prop}:\s*(#[0-9a-fA-F]{{3,8}})", css)
         if m:
@@ -93,27 +90,63 @@ def _load_font(size: int, family: str = "") -> ImageFont.FreeTypeFont:
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str:
-    """اقتصاص النص ليلائم عرض الصورة (بعد التشكيل)."""
-    while text and draw.textbbox((0, 0), text, font=font)[2] > max_width:
-        text = text[:-1]
-    return text
+    """اقتصاص النص ليلائم عرض الصورة مع علامة حذف (بعد التشكيل)."""
+    if not text:
+        return text
+    if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
+        return text
+    ellipsis = "…"
+    trimmed = text
+    while trimmed and draw.textbbox((0, 0), trimmed + ellipsis, font=font)[2] > max_width:
+        trimmed = trimmed[:-1]
+    return (trimmed + ellipsis) if trimmed else ellipsis
+
+
+def _wrap_title(draw: ImageDraw.ImageDraw, text: str, font, max_width: int, max_lines: int = 3) -> list[str]:
+    """التفاف العنوان على عدة أسطر (يفضل حدود الكلمات) مع اقتصاص آمن."""
+    if not text:
+        return []
+    words = text.split()
+    if not words:
+        return [_fit_text(draw, text, font, max_width)]
+    lines: list[str] = []
+    current = ""
+    for w in words:
+        trial = f"{current} {w}".strip()
+        if draw.textbbox((0, 0), trial, font=font)[2] <= max_width:
+            current = trial
+        else:
+            if current:
+                lines.append(current)
+            current = w
+            if len(lines) == max_lines - 1:
+                # السطر الأخير: ادمج الباقي مع اقتصاص
+                rest = " ".join([current] + words[words.index(w) + 1 :])
+                lines.append(_fit_text(draw, rest, font, max_width))
+                return lines
+    if current:
+        lines.append(_fit_text(draw, current, font, max_width))
+    return lines[:max_lines]
 
 
 def _save_with_format(buf: io.BytesIO, img: Image.Image, options) -> None:  # noqa: ANN001
     """حفظ الصورة بالصيغة الفعلية المختارة (jpeg/png/webp) دون خلط."""
     fmt = (getattr(options, "image_format", "jpeg") or "jpeg").lower()
     if fmt == "png":
-        img.save(buf, format="PNG")
+        img.save(buf, format="PNG", optimize=True)
     elif fmt == "webp":
-        img.save(buf, format="WEBP", quality=85)
+        img.save(buf, format="WEBP", quality=85, method=4)
     else:
-        img.save(buf, format="JPEG", quality=85)
+        img.save(buf, format="JPEG", quality=85, optimize=True, progressive=True)
 
 
 def generate_cover_bytes(book: Book, options) -> bytes:  # noqa: ANN001
-    """إرجاع بايت JPEG للغلاف: صورة المستخدم أو توليد تلقائي."""
-    if options.cover_image is not None and Path(options.cover_image).exists():
-        return _user_cover_bytes(Path(options.cover_image), options)
+    """إرجاع بايت الغلاف: صورة المستخدم أو توليد تلقائي."""
+    cover_path = getattr(options, "cover_image", None)
+    if cover_path is not None and Path(cover_path).exists():
+        return _user_cover_bytes(Path(cover_path), options)
+    if not (getattr(options, "auto_cover", True) and (book.metadata.title or "").strip()):
+        raise ValueError("لا صورة غلاف ولا عنوان للتوليد التلقائي")
     return _auto_cover_bytes(book, options)
 
 
@@ -135,21 +168,32 @@ def _auto_cover_bytes(book: Book, options) -> bytes:  # noqa: ANN001
     title_font = _load_font(96, options.title_font)
     sub_font = _load_font(56, options.body_font)
 
-    title = _shape(book.metadata.title or "بلا عنوان")
-    author = _shape(book.metadata.author or "")
-    title = _fit_text(draw, title, title_font, _COVER_W - 200)
-    author = _fit_text(draw, author, sub_font, _COVER_W - 200)
+    title_raw = book.metadata.title or "بلا عنوان"
+    author_raw = book.metadata.author or ""
+    title_shaped = _shape(title_raw)
+    author_shaped = _shape(author_raw) if author_raw else ""
+    title_lines = _wrap_title(draw, title_shaped, title_font, _COVER_W - 200)
+    author_line = _fit_text(draw, author_shaped, sub_font, _COVER_W - 200) if author_shaped else ""
 
-    tbox = draw.textbbox((0, 0), title, font=title_font)
-    tx = (_COVER_W - (tbox[2] - tbox[0])) // 2
-    ty = _COVER_H // 3
-    draw.text((tx, ty), title, font=title_font, fill=fg)
+    # رسم العنوان متعدد الأسطر متمركزًا
+    line_heights = []
+    for ln in title_lines:
+        bbox = draw.textbbox((0, 0), ln, font=title_font)
+        line_heights.append(bbox[3] - bbox[1])
+    line_gap = 12
+    total_h = sum(line_heights) + line_gap * max(len(title_lines) - 1, 0)
+    ty = _COVER_H // 3 - total_h // 2
+    for ln, lh in zip(title_lines, line_heights):
+        tbox = draw.textbbox((0, 0), ln, font=title_font)
+        tx = (_COVER_W - (tbox[2] - tbox[0])) // 2
+        draw.text((tx, ty), ln, font=title_font, fill=fg)
+        ty += lh + line_gap
 
-    if author:
-        abox = draw.textbbox((0, 0), author, font=sub_font)
+    if author_line:
+        abox = draw.textbbox((0, 0), author_line, font=sub_font)
         draw.text(
-            ((_COVER_W - (abox[2] - abox[0])) // 2, ty + 200),
-            author,
+            ((_COVER_W - (abox[2] - abox[0])) // 2, ty + 60),
+            author_line,
             font=sub_font,
             fill=accent,
         )
@@ -160,9 +204,18 @@ def _auto_cover_bytes(book: Book, options) -> bytes:  # noqa: ANN001
 
 
 def _user_cover_bytes(path: Path, options) -> bytes:  # noqa: ANN001
-    """فتح صورة المستخدم وتكييفها (resize + ضغط)."""
+    """فتح صورة المستخدم وتكييفها (تدوير EXIF + دمج شفافية + resize + ضغط)."""
+    from PIL import ImageOps
+
     with Image.open(path) as img:
-        img = img.convert("RGB")
+        img = ImageOps.exif_transpose(img)
+        if img.mode in ("RGBA", "LA", "PA"):
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            alpha = img.split()[-1]
+            bg.paste(img.convert("RGB"), mask=alpha)
+            img = bg
+        else:
+            img = img.convert("RGB")
         max_w = int(options.max_image_width or 1200)
         if img.width > max_w:
             ratio = max_w / img.width

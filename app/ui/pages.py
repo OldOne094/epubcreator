@@ -102,7 +102,6 @@ class ChapterEditor(QWidget):
         splitter.setStretchFactor(1, 1)
         outer.addWidget(splitter, 1)
 
-        self.title_edit.textChanged.connect(self._on_title_edited)
         self.body_edit.textChanged.connect(self._on_body_edited)
         self.body_edit.textChanged.connect(self._update_count)
 
@@ -143,7 +142,7 @@ class ChapterEditor(QWidget):
         answer = QMessageBox.question(
             self,
             "حذف الفصل",
-            f"حذف فصل «{name}»؟ لا يمكن التراجع عن هذا الإجراء.",
+            f"حذف فصل «{name}»؟ يمكن التراجع عن الحذف بزر تراجع.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -316,6 +315,7 @@ class MetadataPage(QWidget):
             setattr(meta, attr, edit.text())
         meta.description = self.description.toPlainText()
         meta.language = self.language.currentData() or "ar"
+        self.state.notify_metadata_changed()
 
 
 def build_pages(state: BookState) -> dict[str, QWidget]:

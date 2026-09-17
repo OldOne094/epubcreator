@@ -114,8 +114,10 @@ def save_project(book: Book, path: Path) -> None:
         "source_files": [str(p) for p in book.source_files],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)
 
 
 def load_project(path: Path) -> Book:
