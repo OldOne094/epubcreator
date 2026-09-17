@@ -121,3 +121,72 @@ class UpdateCheckJob(QRunnable):
             self.signals.error.emit(str(exc))
             return
         self.signals.finished.emit(result)
+
+
+class CoverSignals(QObject):
+    """إشارات توليد معاينة الغلاف (token لتمييز النتائج القديمة)."""
+
+    finished = Signal(int, object)  # (token, bytes)
+    error = Signal(int, str)  # (token, message)
+
+
+class CoverJob(QRunnable):
+    """يولّد بايتات الغلاف من لقطة خفيفة (بلا نسخ الكتاب كاملًا) في خيط."""
+
+    def __init__(self, token: int, snapshot: dict) -> None:
+        super().__init__()
+        self.token = token
+        self.snapshot = snapshot
+        self.signals = CoverSignals()
+
+    def run(self) -> None:
+        try:
+            from types import SimpleNamespace
+
+            from app.core.covergen import generate_cover_bytes
+
+            s = self.snapshot
+            cover_image = s.get("cover_image")
+            book = SimpleNamespace(
+                metadata=SimpleNamespace(title=s.get("title", ""), author=s.get("author", ""))
+            )
+            options = SimpleNamespace(
+                cover_image=Path(cover_image) if cover_image else None,
+                auto_cover=s.get("auto_cover", True),
+                template=s.get("template", ""),
+                title_font=s.get("title_font", ""),
+                body_font=s.get("body_font", ""),
+                image_format=s.get("image_format", "jpeg"),
+                max_image_width=s.get("max_image_width", 1200),
+            )
+            data = generate_cover_bytes(book, options)
+        except Exception as exc:  # noqa: BLE001
+            self.signals.error.emit(self.token, str(exc))
+            return
+        self.signals.finished.emit(self.token, bytes(data))
+
+
+class ValidateSignals(QObject):
+    """إشارات التحقق من EPUB بعد التصدير."""
+
+    finished = Signal(object, object)  # (Path, issues)
+    error = Signal(object, str)  # (Path, message)
+
+
+class ValidateJob(QRunnable):
+    """يفحص EPUB الناتج في خيط حتى لا يجمّد الواجهة مع الملفات الكبيرة."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.path = path
+        self.signals = ValidateSignals()
+
+    def run(self) -> None:
+        try:
+            from app.core.validate import validate_epub
+
+            issues = validate_epub(Path(self.path))
+        except Exception as exc:  # noqa: BLE001
+            self.signals.error.emit(self.path, str(exc))
+            return
+        self.signals.finished.emit(self.path, issues)

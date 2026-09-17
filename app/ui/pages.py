@@ -272,13 +272,25 @@ class MetadataPage(QWidget):
         self.language = QComboBox()
         for code, name in _LANGUAGES:
             self.language.addItem(name, code)
-        self.language.currentIndexChanged.connect(self._on_edited)
+        self.language.currentIndexChanged.connect(self._on_language_changed)
+        self.language_custom = QLineEdit()
+        self.language_custom.setPlaceholderText("رمز اللغة BCP47 (مثال: ur)")
+        self.language_custom.setToolTip("رمز لغة صالح: حروف وأرقام وشرطات فقط (مثال: ar، en-US)")
+        self.language_custom.textChanged.connect(self._on_edited)
+        self.language_custom.hide()
 
         for attr, label, group in _FIELD_MAP:
             if attr == "description":
                 widget: QWidget = self.description
             elif attr == "language":
-                widget = self.language
+                lang_box = QVBoxLayout()
+                lang_box.setContentsMargins(0, 0, 0, 0)
+                lang_box.setSpacing(6)
+                lang_box.addWidget(self.language)
+                lang_box.addWidget(self.language_custom)
+                container = QWidget()
+                container.setLayout(lang_box)
+                widget = container
             else:
                 edit = QLineEdit()
                 edit.textChanged.connect(self._on_edited)
@@ -302,10 +314,25 @@ class MetadataPage(QWidget):
         for attr, edit in self._fields.items():
             edit.setText(getattr(meta, attr, ""))
         self.description.setPlainText(meta.description)
-        code = meta.language or "ar"
+        code = (meta.language or "ar").strip()
         idx = self.language.findData(code)
-        self.language.setCurrentIndex(idx if idx >= 0 else 0)
+        if idx >= 0:
+            self.language.setCurrentIndex(idx)
+            self.language_custom.hide()
+        else:
+            # رمز مخصص غير مدرج (مشاريع قديمة فيها other) → أخرى + حقل مخصص
+            other_idx = self.language.findData("other")
+            self.language.setCurrentIndex(other_idx if other_idx >= 0 else 0)
+            self.language_custom.setText("" if code == "other" else code)
+            self.language_custom.show()
         self._loading = False
+
+    def _on_language_changed(self) -> None:
+        is_other = self.language.currentData() == "other"
+        self.language_custom.setVisible(is_other)
+        if is_other and not self.language_custom.text().strip():
+            self.language_custom.setText("")
+        self._on_edited()
 
     def _on_edited(self) -> None:
         if self._loading:
@@ -314,7 +341,13 @@ class MetadataPage(QWidget):
         for attr, edit in self._fields.items():
             setattr(meta, attr, edit.text())
         meta.description = self.description.toPlainText()
-        meta.language = self.language.currentData() or "ar"
+        if self.language.currentData() == "other":
+            import re as _re
+
+            custom = self.language_custom.text().strip().lower().replace("_", "-")
+            meta.language = custom if _re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})*", custom) else "ar"
+        else:
+            meta.language = self.language.currentData() or "ar"
         self.state.notify_metadata_changed()
 
 

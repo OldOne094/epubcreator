@@ -1,6 +1,7 @@
 """نماذج البيانات الأساسية (Metadata, Chapter, EpubOptions, Book)."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,43 @@ class Metadata:
     def is_valid(self) -> bool:
         """الحد الأدنى الإلزامي: عنوان + لغة."""
         return bool(self.title.strip()) and bool(self.language.strip())
+
+
+def normalize_isbn(raw: str) -> str:
+    """ISBN مجرّد من الشرطات/المسافات (أرقام + X أخيرة محتملة)."""
+    return re.sub(r"[\s\-‐‑‒–—―]+", "", (raw or "").strip().upper())
+
+
+def is_valid_isbn(raw: str) -> bool:
+    """تحقق خفيف من ISBN-10/ISBN-13 (فارغ = صالح/اختياري)."""
+    s = normalize_isbn(raw)
+    if not s:
+        return True
+    if len(s) == 10:
+        if not re.fullmatch(r"\d{9}[\dX]", s):
+            return False
+        total = sum((10 - i) * (10 if ch == "X" else int(ch)) for i, ch in enumerate(s))
+        return total % 11 == 0
+    if len(s) == 13:
+        if not re.fullmatch(r"\d{13}", s):
+            return False
+        total = sum(int(ch) * (1 if i % 2 == 0 else 3) for i, ch in enumerate(s))
+        return total % 10 == 0
+    return False
+
+
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def has_invalid_filename_chars(name: str) -> bool:
+    """هل يحتوي اسم الملف على محارف محظورة؟"""
+    return bool(_INVALID_FILENAME_CHARS.search(name or ""))
+
+
+def sanitize_filename(name: str, fallback: str = "book") -> str:
+    """تعقيم اسم ملف: إزالة المحارف المحظورة في Windows (تُستبدل بشرطة سفلية)."""
+    clean = _INVALID_FILENAME_CHARS.sub("_", (name or "").strip()).strip(" .")
+    return clean or fallback
 
 
 @dataclass

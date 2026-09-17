@@ -109,8 +109,13 @@ class ExportPage(QWidget):
         self.state.book.options.epub_version = int(self.version_combo.currentData() or 3)
         self.state.notify()
 
+    def _default_filename(self) -> str:
+        from app.models import sanitize_filename
+
+        return sanitize_filename(self.state.book.metadata.title.strip() or "book") + ".epub"
+
     def _browse_destination(self) -> None:
-        default = self.destination.text().strip() or self.state.book.metadata.title + ".epub"
+        default = self.destination.text().strip() or self._default_filename()
         path, _ = QFileDialog.getSaveFileName(self, "احفظ EPUB", default, "EPUB (*.epub)")
         if path:
             self.destination.setText(path)
@@ -124,26 +129,67 @@ class ExportPage(QWidget):
 
     # ---- تصدير ----
     def trigger_export(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from app.models import has_invalid_filename_chars, is_valid_isbn
+        from app.ui.dialogs import error_dialog
+
         book = self.state.book
         if not book.chapters:
-            from app.ui.dialogs import error_dialog
-
             error_dialog(self, "لا يوجد أي فصل للتصدير — استورد كتابًا أولًا.")
             return
         if not book.metadata.title.strip():
-            from app.ui.dialogs import error_dialog
-
             error_dialog(self, "أُدخل عنوان الكتاب أولًا قبل التصدير (صفحة البيانات).")
             return
+        isbn = book.metadata.isbn.strip()
+        if isbn and not is_valid_isbn(isbn):
+            answer = QMessageBox.question(
+                self,
+                "ISBN غير صالح",
+                f"الرقم «{isbn}» ليس ISBN-10/13 صالحًا. المتابعة ستكتبه كما هو في الملف.\nهل تريد المتابعة؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
 
         dest = self.destination.text().strip()
         if not dest:
             start, _ = QFileDialog.getSaveFileName(
-                self, "احفظ EPUB", book.metadata.title + ".epub", "EPUB (*.epub)"
+                self, "احفظ EPUB", self._default_filename(), "EPUB (*.epub)"
             )
             if not start:
                 return
             dest = start
+        dest_path = Path(dest)
+        if not dest_path.suffix:
+            dest_path = dest_path.with_suffix(".epub")
+        # محارف غير صالحة في اسم الملف؟
+        if has_invalid_filename_chars(dest_path.name):
+            error_dialog(
+                self,
+                f"اسم الملف يحتوي محارف غير صالحة (<>:\"/\\|?*): {dest_path.name}",
+            )
+            return
+        # مجلد الوجهة: أنشئه أو ارفض بوضوح
+        try:
+            if dest_path.parent and str(dest_path.parent) not in ("", "."):
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            error_dialog(self, f"تعذّر إنشاء مجلد الوجهة: {exc}")
+            return
+        # تأكيد الكتابة فوق ملف موجود أُدخل يدويًا
+        if dest_path.exists():
+            answer = QMessageBox.question(
+                self,
+                "ملف موجود",
+                f"الملف «{dest_path.name}» موجود. هل تريد الكتابة فوقه؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        dest = str(dest_path)
         self.destination.setText(dest)
         self.progress.setValue(0)
         self.progress.setFormat("جارٍ التصدير…")

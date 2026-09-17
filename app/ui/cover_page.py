@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -33,6 +33,13 @@ class CoverPage(QWidget):
         self.state = state
         self._loading = False
         self._last_cover_sig = None
+        self._cover_token = 0
+        self._cover_job = None
+        self._pending_sig = None
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(300)
+        self._preview_timer.timeout.connect(self._start_preview_job)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 18, 24, 18)
@@ -96,7 +103,7 @@ class CoverPage(QWidget):
         self.preview_button = QPushButton("توليد معاينة الغلاف")
         self.preview_button.setObjectName("Primary")
         self.preview_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.preview_button.clicked.connect(self.refresh_preview)
+        self.preview_button.clicked.connect(self.refresh_preview_now)
         buttons.addWidget(self.preview_button)
         buttons.addStretch(1)
         preview_section.layout.addLayout(buttons)
@@ -164,7 +171,7 @@ class CoverPage(QWidget):
         self.state.notify()
 
     def refresh_preview(self) -> None:
-        """توليد صورة الغلاف الفعلية وعرضها (مع تجاهل أخطاء الخطوط).
+        """طلب معاينة (مخفَّض التكرار): يعيد التوليد في خيط خلفي عند الحاجة فقط.
 
         تتحدث حيًّا عند تغيّر العنوان/القالب/الصورة عبر كاش بصمة يتجاهل
         عمليات إعادة التوليد غير المجدية.
@@ -172,6 +179,7 @@ class CoverPage(QWidget):
         book: Book = self.state.book
         opts = book.options
         if not opts.cover_image and not (opts.auto_cover and book.metadata.title.strip()):
+            self._preview_timer.stop()
             self.cover_display.setText("أضف عنوانًا في صفحة البيانات لتوليد غلاف تلقائي.")
             self._last_cover_sig = None
             return
@@ -182,21 +190,74 @@ class CoverPage(QWidget):
         )
         if sig == self._last_cover_sig:
             return
-        try:
-            from app.core.covergen import generate_cover_bytes
+        self._pending_sig = sig
+        self._preview_timer.start()
 
-            data = generate_cover_bytes(book, opts)
-            pix = QPixmap()
-            pix.loadFromData(data)
-            if pix.isNull():
-                self.cover_display.setText("تعذّرت معاينة الغلاف.")
-                self._last_cover_sig = None
-                return
-            max_h = 360
-            if pix.height() > max_h:
-                pix = pix.scaledToHeight(max_h, Qt.TransformationMode.SmoothTransformation)
-            self.cover_display.setPixmap(pix)
-            self._last_cover_sig = sig
-        except Exception:  # noqa: BLE001 — المعاينة لا توقف التطبيق
-            self.cover_display.setText("تعذّرت معاينة الغلاف (تأكد من توفر الخطوط).")
+    def refresh_preview_now(self) -> None:
+        """توليد فوري (زر المعاينة) — يلغي الانتظار المخفَّض ويبدأ المهمة حالًا."""
+        self._preview_timer.stop()
+        book: Book = self.state.book
+        opts = book.options
+        if not opts.cover_image and not (opts.auto_cover and book.metadata.title.strip()):
+            self.cover_display.setText("أضف عنوانًا في صفحة البيانات لتوليد غلاف تلقائي.")
             self._last_cover_sig = None
+            return
+        self._pending_sig = (
+            book.metadata.title, book.metadata.author, opts.template,
+            opts.title_font, opts.body_font, str(opts.cover_image),
+            opts.image_format, opts.max_image_width,
+        )
+        if self._pending_sig == self._last_cover_sig:
+            return
+        self._start_preview_job()
+
+    def _start_preview_job(self) -> None:
+        sig = getattr(self, "_pending_sig", None)
+        if sig is None:
+            return
+        book: Book = self.state.book
+        opts = book.options
+        self._cover_token += 1
+        token = self._cover_token
+        snapshot = {
+            "title": book.metadata.title,
+            "author": book.metadata.author,
+            "template": opts.template,
+            "title_font": opts.title_font,
+            "body_font": opts.body_font,
+            "cover_image": str(opts.cover_image) if opts.cover_image else None,
+            "image_format": opts.image_format,
+            "max_image_width": opts.max_image_width,
+            "auto_cover": opts.auto_cover,
+        }
+        from app.workers import CoverJob
+
+        job = CoverJob(token, snapshot)
+        self._cover_job = job  # إبقاء مرجع حتى لا يبتلعه GC
+        job.signals.finished.connect(self._on_preview_done)
+        job.signals.error.connect(self._on_preview_error)
+        if self.cover_display.pixmap() is None or self.cover_display.pixmap().isNull():
+            self.cover_display.setText("جارٍ توليد المعاينة…")
+        QThreadPool.globalInstance().start(job)
+
+    def _on_preview_done(self, token: int, data: bytes) -> None:  # noqa: ANN001
+        if token != self._cover_token:
+            return  # نتيجة قديمة — تجاهلها
+        pix = QPixmap()
+        pix.loadFromData(data)
+        if pix.isNull():
+            self.cover_display.setText("تعذّرت معاينة الغلاف.")
+            self._last_cover_sig = None
+            return
+        max_h = 360
+        if pix.height() > max_h:
+            pix = pix.scaledToHeight(max_h, Qt.TransformationMode.SmoothTransformation)
+        self.cover_display.setPixmap(pix)
+        self._last_cover_sig = getattr(self, "_pending_sig", self._last_cover_sig)
+
+    def _on_preview_error(self, token: int, message: str) -> None:
+        if token != self._cover_token:
+            return
+        if self.cover_display.pixmap() is None or self.cover_display.pixmap().isNull():
+            self.cover_display.setText("تعذّرت معاينة الغلاف (تأكد من توفر الخطوط).")
+        self._last_cover_sig = None

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtCore import Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
@@ -64,6 +64,10 @@ class MainWindow(QMainWindow):
         self.preview = Preview()
         self._pool = QThreadPool()
         self._jobs: list = []  # إبقاء مرجع للمهام حتى لا يبتلعها GC قبل انتهاء الإشارات
+        self._heavy_timer = QTimer(self)
+        self._heavy_timer.setSingleShot(True)
+        self._heavy_timer.setInterval(350)
+        self._heavy_timer.timeout.connect(self._heavy_refresh)
         self._build_ui()
         self._build_menu()
 
@@ -224,6 +228,7 @@ class MainWindow(QMainWindow):
         url = app_settings.effective_update_url(self._config)
         self.statusBar().showMessage("جارٍ فحص التحديثات…")
         job = UpdateCheckJob(url)
+        self._track_job(job)
         job.signals.finished.connect(self._on_update_check_done)
         job.signals.error.connect(self._on_update_check_error)
         self._pool.start(job)
@@ -424,7 +429,7 @@ class MainWindow(QMainWindow):
             return
         self._set_busy(True, "جارٍ استيراد الملفات…")
         job = ImportJob(paths)
-        self._jobs.append(job)
+        self._track_job(job)
         job.signals.finished.connect(self._on_import_done)
         job.signals.error.connect(self._on_import_error)
         self._pool.start(job)
@@ -467,23 +472,42 @@ class MainWindow(QMainWindow):
         if message:
             self.statusBar().showMessage(message)
 
+    def _drop_job(self, job) -> None:  # noqa: ANN001
+        """تحرير مرجع المهمة المنتهية حتى لا تتراكم في الذاكرة."""
+        try:
+            self._jobs.remove(job)
+        except ValueError:
+            pass
+
+    def _track_job(self, job) -> None:  # noqa: ANN001
+        """تتبّع مهمة + تنظيف تلقائي عند انتهائها (نجاحًا أو خطأً)."""
+        self._jobs.append(job)
+        job.signals.finished.connect(lambda *_, j=job: self._drop_job(j))
+        job.signals.error.connect(lambda *_, j=job: self._drop_job(j))
+
     def _on_state_changed(self) -> None:
+        # رخيص وفوري: حالة التعديل + عنوان الرأس + عنوان النافذة
         self._dirty = True
         book = self.state.book
         title = book.metadata.title.strip()
         self.book_title_label.setText(title or ("لا يوجد كتاب مفتوح" if not book.chapters else "(بلا عنوان)"))
-        self.pages["home"].refresh()
-        self.pages["export"].refresh()
-        preview_page = self.pages[PAGE_PREVIEW]
-        # أعد رسم المعاينة فورًا إن كانت ظاهرة أو تغيّر عدد الفصول؛ وإلا عند فتحها
-        if self.stack.currentWidget() is preview_page or len(book.chapters) != preview_page._last_count:
-            preview_page.refresh()
-        if self.stack.currentWidget() is self.pages["cover"]:
-            self.pages["cover"].refresh_preview()
         if self._last_template != book.options.template:
             self._last_template = book.options.template
             app_settings.set_config(last_template=self._last_template)
         self._update_window_title()
+        # ثقيل ومخفَّض: إعادة رسم الصفحات (معاينة/غلاف) بعد توقف الكتابة
+        self._heavy_timer.start()
+
+    def _heavy_refresh(self) -> None:
+        book = self.state.book
+        self.pages["home"].refresh()
+        self.pages["export"].refresh()
+        preview_page = self.pages[PAGE_PREVIEW]
+        # أعد رسم المعاينة إن كانت ظاهرة أو تغيّر عدد الفصول؛ وإلا عند فتحها
+        if self.stack.currentWidget() is preview_page or len(book.chapters) != preview_page._last_count:
+            preview_page.refresh()
+        if self.stack.currentWidget() is self.pages["cover"]:
+            self.pages["cover"].refresh_preview()
 
     # -------------------------------------------------------- تصدير ---
     def _on_export(self) -> None:
@@ -494,24 +518,36 @@ class MainWindow(QMainWindow):
         if not self.state.book.chapters:
             return
         self._set_busy(True, "جارٍ بناء كتاب EPUB…")
-        # ExportJob يلتقط لقطة عميقة للكتاب داخل run (لا تتأثر بتحرير المستخدم)
+        # ExportJob يلتقط لقطة عميقة للكتاب لحظة الإنشاء (لا تتأثر بتحرير المستخدم)
         job = ExportJob(self.state.book, dest)
-        self._jobs.append(job)
+        self._track_job(job)
         job.signals.finished.connect(self._on_export_done)
         job.signals.error.connect(self._on_export_error)
         job.signals.progress.connect(self.pages["export"].show_progress)
         self._pool.start(job)
 
     def _on_export_done(self, path) -> None:  # noqa: ANN001
-        self._set_busy(False)
-        from app.core.validate import validate_epub
+        from app.workers import ValidateJob
 
-        issues = validate_epub(Path(path))
+        self.statusBar().showMessage("اكتمل البناء — جارٍ التحقق من الكتاب…")
+        job = ValidateJob(Path(path))
+        self._track_job(job)
+        job.signals.finished.connect(self._on_validate_done)
+        job.signals.error.connect(self._on_validate_error)
+        self._pool.start(job)
+
+    def _on_validate_done(self, path, issues) -> None:  # noqa: ANN001
+        self._set_busy(False)
         self.pages["export"].show_result(Path(path), issues)
         if issues:
             self.statusBar().showMessage("صُدّر الكتاب — يوجد تحذيرات/أخطاء تحقق.")
         else:
             self.statusBar().showMessage(f"صُدّر بنجاح وسليم: {Path(path).name}")
+
+    def _on_validate_error(self, path, message: str) -> None:  # noqa: ANN001
+        self._set_busy(False)
+        self.pages["export"].show_result(Path(path), [])
+        self.statusBar().showMessage(f"صُدّر بنجاح (تعذّر التحقق التلقائي: {message})")
 
     def _on_export_error(self, msg: str) -> None:
         self._set_busy(False)
@@ -544,6 +580,20 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------ إغلاق ---
     def closeEvent(self, event) -> None:  # noqa: N802
+        # مهام خلفية جارية؟ اسأل قبل إجهاضها (ملف ناقص/كراش)
+        if self._pool.activeThreadCount() > 0:
+            answer = QMessageBox.question(
+                self,
+                "مهام جارية",
+                "يوجد استيراد/تصدير جارٍ. إغلاق الآن سيُلغي المهمة وقد يترك ملفًا ناقصًا. هل تريد الإغلاق؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            self._pool.clear()
+            self._pool.waitForDone(3000)
         app_settings.save_window_geometry(bytes(self.saveGeometry()))
         if not self._dirty:
             event.accept()

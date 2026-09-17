@@ -172,12 +172,13 @@ def _meta_fields(meta, epub_version: int) -> str:  # noqa: ANN001
     return "\n    ".join(parts)
 
 
-def content_opf(book: Book, chapter_files: list[str], has_cover: bool, cover_href: str | None, epub_version: int = 3, font_files: list[tuple[str, str]] | None = None) -> str:
+def content_opf(book: Book, chapter_files: list[str], has_cover: bool, cover_href: str | None, epub_version: int = 3, font_files: list[tuple[str, str]] | None = None, identifier: str | None = None) -> str:
     """content.opf: metadata + manifest + spine + cover + خطوط مضمّنة."""
     meta = book.metadata
     lang = _safe_lang(meta.language)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    identifier = meta.isbn.strip() or f"urn:uuid:{uuid.uuid4()}"
+    if not identifier:
+        identifier = meta.isbn.strip() or f"urn:uuid:{uuid.uuid4()}"
     if epub_version not in (2, 3):
         epub_version = 3
     version = "3.0" if epub_version == 3 else "2.0"
@@ -284,12 +285,14 @@ class EpubWriter:
         lang = _safe_lang(meta.language)
         nav = nav_xhtml(chapters, meta.title or "فهرس", lang=lang, direction=opts.direction)
         v2 = opts.epub_version == 2
+        # معرّف واحد موحّد بين OPF وNCX (كانا uuid منفصلين سابقًا)
+        uid = meta.isbn.strip() or f"urn:uuid:{uuid.uuid4()}"
         opf = content_opf(
             self.book, chapter_files, has_cover, cover_href,
             epub_version=opts.epub_version,
             font_files=[(media, href) for media, href, _ in font_items],
+            identifier=uid,
         )
-        ncx_uid = meta.isbn.strip() or f"urn:uuid:{uuid.uuid4()}"
 
         self._progress(25, "كتابة الهيكل (OPF/NAV/CSS)…")
         destination = Path(destination)
@@ -301,7 +304,7 @@ class EpubWriter:
                 zf.writestr("META-INF/container.xml", _CONTAINER, compress_type=ZIP_DEFLATED)
                 zf.writestr("OEBPS/content.opf", opf, compress_type=ZIP_DEFLATED)
                 if v2:
-                    zf.writestr("OEBPS/toc.ncx", toc_ncx(chapters, ncx_uid, meta.title or "فهرس"), compress_type=ZIP_DEFLATED)
+                    zf.writestr("OEBPS/toc.ncx", toc_ncx(chapters, uid, meta.title or "فهرس"), compress_type=ZIP_DEFLATED)
                 else:
                     zf.writestr("OEBPS/nav.xhtml", nav, compress_type=ZIP_DEFLATED)
                 zf.writestr("OEBPS/style.css", css, compress_type=ZIP_DEFLATED)
