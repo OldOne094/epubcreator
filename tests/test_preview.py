@@ -31,6 +31,20 @@ def test_split_paragraphs_numbered_list_kept():
     assert len(paras) == 3
 
 
+def test_split_paragraphs_time_and_decimal_not_list():
+    # "12:30" و"1.5" ليست تعدادًا — تُدمج مع جملتها
+    assert split_paragraphs("الساعة 12:30 تمامًا.") == ["الساعة 12:30 تمامًا."]
+    assert split_paragraphs("الوزن 1.5 كيلو.") == ["الوزن 1.5 كيلو."]
+    assert split_paragraphs("1. البند الأول.\n2. البند الثاني.") == ["1. البند الأول.", "2. البند الثاني."]
+
+
+def test_split_paragraphs_uniform_wrapped_prose_merges():
+    # نثر TXT مقسّم يدويًا بأسطر متساوية (~80 حرف) يُدمج لا يُعامل شعرًا
+    line = "هذا سطر نثري طويل نسبيًا يبلغ طوله حوالي ثمانين حرفًا بالتمام والكمال هنا."
+    body = "\n".join([line, line, line])
+    assert split_paragraphs(body) == [f"{line} {line} {line}"]
+
+
 def test_split_blocks_blank_separators():
     blocks = split_blocks("نص أ.\n\nنص ب.\nبب\n\nنص ج")
     assert blocks == [["نص أ."], ["نص ب.", "بب"], ["نص ج"]]

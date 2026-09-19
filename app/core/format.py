@@ -18,7 +18,9 @@ from __future__ import annotations
 import html as _html
 import re
 
-_NUMBERED = re.compile(r"^\s*[\dA-Za-z٠-٩]{1,3}\s*[.):\-–]\s*")
+# تعداد/قائمة: رقم أو حرف + فاصل + فراغ بعده ("1. البند"، "أ) …").
+# يُشترط الفراغ بعد الفاصل حتى لا تُصنَّف الأوقات ("12:30") والكسور ("1.5").
+_NUMBERED = re.compile(r"^\s*[\dA-Za-z٠-٩]{1,3}\s*[.):\-–]\s+\S")
 _WRAP_THRESHOLD = 120  # طول السطر الذي يعدّ النص ملفوفًا تلقائيًّا (نثرًا)
 
 
@@ -49,14 +51,21 @@ def split_blocks(body: str) -> list[list[str]]:
 def _is_verse_like(lines: list[str]) -> bool:
     """الطبقة 3: تصنيف الكتلة — أسطر مستقلة أم فقرة نثرية تُدمج.
 
-    - سطر يبدأ بعدّ (رقم/حرف + فاصل) → تعداد/قائمة: أسطر مستقلة.
-    - سطر طويل (> _WRAP_THRESHOLD) → نص ملفوف تلقائيًّا: يدمج.
-    - غير ذلك → أسطر مستقلة محفوظة (شعر، رسالة، سطور قصيرة).
+    - سطر يبدأ بعدّ (رقم/حرف + فاصل + فراغ) → تعداد/قائمة: أسطر مستقلة.
+    - أسطر طويلة متعددة أو متساوية الطول (نثر ملفوف يدويًا) → تُدمج.
+    - بيت شعري طويل منفرد لا يدمج الكتلة كلها؛ غير ذلك → أسطر مستقلة
+      محفوظة (شعر، رسالة، سطور قصيرة).
     """
     if any(_NUMBERED.match(ln) for ln in lines):
         return True
-    if any(len(ln) > _WRAP_THRESHOLD for ln in lines):
-        return False
+    if len(lines) >= 2:
+        long = sum(1 for ln in lines if len(ln) > _WRAP_THRESHOLD)
+        if long >= 2 or (long == 1 and len(lines) >= 4):
+            return False
+        if len(lines) >= 3:
+            lens = [len(ln) for ln in lines]
+            if max(lens) - min(lens) <= 12 and sum(lens) / len(lens) >= 40:
+                return False  # نثر مقسّم يدويًا بأسطر متساوية (TXT بعرض ثابت)
     return True
 
 

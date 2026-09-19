@@ -24,8 +24,14 @@ def test_clean_keeps_arabic_indic_digits():
 
 
 def test_clean_removes_invisible():
-    assert strip_bom_and_invisible("ك\u200cلمة") == "كلمة"
     assert strip_bom_and_invisible("a\u200fb") == "ab"
+
+
+def test_clean_preserves_zwnj_and_zwj():
+    # ZWNJ حرف دلالي (فارسية/أردية) وZWJ يربط الإيموجي — لا يُحذفان
+    assert strip_bom_and_invisible("ك\u200cلمة") == "ك\u200cلمة"
+    assert strip_bom_and_invisible("نیم\u200cفاصله") == "نیم\u200cفاصله"
+    assert clean_arabic("👨\u200d👩\u200d👧") == "👨\u200d👩\u200d👧"
 
 
 def test_clean_normalizes_newlines():
@@ -60,3 +66,28 @@ def test_heading_heuristics():
     assert is_chapter_heading("الباب الأول")
     assert is_chapter_heading("Chapter 7")
     assert not is_chapter_heading("في يوم من الأيام كانت هناك قصة طويلة جدا جدا جدا.")
+
+
+def test_heading_without_al():
+    # ترتيب بلا "ال" شائع ويُكتشف
+    assert is_chapter_heading("فصل أول")
+    assert is_chapter_heading("باب ثانٍ")
+    assert is_chapter_heading("الفصل - الأول")
+    assert is_chapter_heading("الفصل 1: البداية")
+
+
+def test_heading_rejects_narrative_sentence():
+    # جملة سردية تبدأ بكلمة فصل لا تُقسَّم
+    assert not is_chapter_heading("الباب 5 مفتوح والشباك مكسور منذ أيام طويلة")
+    assert not is_chapter_heading("الباب 5 مفتوح")
+
+
+def test_heading_long_title_accepted():
+    long_title = "الفصل الأول: " + "حكاية طويلة " * 8
+    assert len(long_title) > 60
+    assert is_chapter_heading(long_title.strip())
+
+
+def test_heading_standalone_without_al():
+    assert is_chapter_heading("مقدمة")
+    assert is_chapter_heading("خاتمة")
