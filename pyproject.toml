@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+build = ["pyinstaller==6.21.0"]
 
 [build-system]
 requires = ["setuptools>=68"]

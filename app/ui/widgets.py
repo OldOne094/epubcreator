@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -17,6 +18,23 @@ def muted_label(text: str, wrap: bool = True) -> QLabel:
     label.setObjectName("Muted")
     if wrap:
         label.setWordWrap(True)
+    return label
+
+
+def labeled_row(form: QFormLayout, text: str, row: QWidget | QFormLayout | QHBoxLayout | QVBoxLayout, buddy: QWidget | None = None) -> QLabel:
+    """صف نموذج بتسمية مربوطة (setBuddy) لقارئ الشاشة وتنقل الكيبورد.
+
+    `row` ما يُعرض في العمود الثاني، و`buddy` العنصر الذي يستقبل التركيز
+    (يفيد عندما يكون الثاني حاوية تحوي عدة عناصر).
+    """
+    label = QLabel(text)
+    target = buddy if buddy is not None else (row if isinstance(row, QWidget) else None)
+    if target is not None:
+        try:
+            label.setBuddy(target)
+        except (TypeError, RuntimeError):  # pragma: no cover
+            pass
+    form.addRow(label, row)
     return label
 
 

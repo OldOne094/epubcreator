@@ -1,4 +1,6 @@
-# Runtime
+# مصدر الحقيقة للتبعيات: pyproject.toml (هذه القائمة مرآة مثبتة للتثبيت المباشر).
+# أي تحديث إصدار يُجرى هناك أولًا ثم يُعكس هنا.
+# Runtime (مطابق لـ [project].dependencies)
 PySide6==6.11.1
 lxml==6.1.1
 python-docx==1.2.0
@@ -9,8 +11,8 @@ platformdirs==4.11.0
 arabic_reshaper==3.0.1
 python-bidi==0.6.11
 
-# Dev
+# Dev (مطابق لـ [project.optional-dependencies].dev)
 pytest
 
-# Build (optional, not required at runtime)
-# pyinstaller==6.21.0
+# Build
+pyinstaller==6.21.0

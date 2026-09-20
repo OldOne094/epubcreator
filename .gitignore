@@ -7,6 +7,12 @@ dist/
 *.spec.bak
 *.epub
 .pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.log
 
 # صفحة الويب المعاينة (لا تُنشر على GitHub)
 PROJECT_MAP.html

@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from app.models import Book
 from app.state import BookState
-from app.ui.widgets import PageHeader, Section, muted_label
+from app.ui.widgets import PageHeader, Section, labeled_row, muted_label
 
 
 class CoverPage(QWidget):
@@ -86,14 +86,16 @@ class CoverPage(QWidget):
         self.max_width.setRange(400, 4000)
         self.max_width.setSingleStep(100)
         self.max_width.setSuffix(" px")
+        self.max_width.setAccessibleName("أقصى عرض للصورة")
         self.image_format = QComboBox()
         self.image_format.addItems(["jpeg", "png", "webp"])
+        self.image_format.setAccessibleName("صيغة الصورة")
         self.compress_check.toggled.connect(self._on_options)
         self.max_width.valueChanged.connect(self._on_options)
         self.image_format.currentIndexChanged.connect(self._on_options)
         form.addRow(self.compress_check, QLabel(""))
-        form.addRow(QLabel("أقصى عرض"), self.max_width)
-        form.addRow(QLabel("الصيغة"), self.image_format)
+        labeled_row(form, "أقصى عرض", self.max_width)
+        labeled_row(form, "الصيغة", self.image_format)
         settings.layout.addLayout(form)
         body_layout.addWidget(section)
         body_layout.addWidget(settings)
@@ -111,6 +113,8 @@ class CoverPage(QWidget):
         self.cover_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.cover_display.setMinimumHeight(320)
         self.cover_display.setScaledContents(False)
+        self.cover_display.setAccessibleName("معاينة الغلاف")
+        self.cover_display.setAccessibleDescription("لا توجد معاينة بعد")
         preview_section.layout.addWidget(self.cover_display)
         body_layout.addWidget(preview_section)
         body_layout.addStretch(1)
@@ -181,6 +185,7 @@ class CoverPage(QWidget):
         if not opts.cover_image and not (opts.auto_cover and book.metadata.title.strip()):
             self._preview_timer.stop()
             self.cover_display.setText("أضف عنوانًا في صفحة البيانات لتوليد غلاف تلقائي.")
+            self.cover_display.setAccessibleDescription("لا توجد معاينة بعد")
             self._last_cover_sig = None
             return
         sig = (
@@ -200,6 +205,7 @@ class CoverPage(QWidget):
         opts = book.options
         if not opts.cover_image and not (opts.auto_cover and book.metadata.title.strip()):
             self.cover_display.setText("أضف عنوانًا في صفحة البيانات لتوليد غلاف تلقائي.")
+            self.cover_display.setAccessibleDescription("لا توجد معاينة بعد")
             self._last_cover_sig = None
             return
         self._pending_sig = (
@@ -238,6 +244,7 @@ class CoverPage(QWidget):
         job.signals.error.connect(self._on_preview_error)
         if self.cover_display.pixmap() is None or self.cover_display.pixmap().isNull():
             self.cover_display.setText("جارٍ توليد المعاينة…")
+        self.cover_display.setAccessibleDescription("جارٍ توليد المعاينة")
         QThreadPool.globalInstance().start(job)
 
     def _on_preview_done(self, token: int, data: bytes) -> None:  # noqa: ANN001
@@ -247,12 +254,14 @@ class CoverPage(QWidget):
         pix.loadFromData(data)
         if pix.isNull():
             self.cover_display.setText("تعذّرت معاينة الغلاف.")
+            self.cover_display.setAccessibleDescription("تعذرت المعاينة")
             self._last_cover_sig = None
             return
         max_h = 360
         if pix.height() > max_h:
             pix = pix.scaledToHeight(max_h, Qt.TransformationMode.SmoothTransformation)
         self.cover_display.setPixmap(pix)
+        self.cover_display.setAccessibleDescription("معاينة الغلاف جاهزة")
         self._last_cover_sig = getattr(self, "_pending_sig", self._last_cover_sig)
 
     def _on_preview_error(self, token: int, message: str) -> None:
@@ -260,4 +269,5 @@ class CoverPage(QWidget):
             return
         if self.cover_display.pixmap() is None or self.cover_display.pixmap().isNull():
             self.cover_display.setText("تعذّرت معاينة الغلاف (تأكد من توفر الخطوط).")
+        self.cover_display.setAccessibleDescription("تعذرت المعاينة")
         self._last_cover_sig = None

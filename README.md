@@ -123,7 +123,7 @@ python -m app.main
 .\.venv\Scripts\pyinstaller epubcreator.spec --noconfirm --clean
 ```
 
-الناتج: **`dist\EPubCreator.exe`** (حزمة واحدة، ~57MB، بدون نافذة طرفية).
+الناتج: **`dist\EPubCreator.exe`** (حزمة واحدة، ~55MB، بدون نافذة طرفية).
 يستثني المخطّط وحدات Qt الثقيلة (QtWebEngine…) للتحكم بالحجم، ويُضمّن تبعيّات
 الغلاف (`arabic_reshaper`، `python-bidi`) في الحزمة.
 

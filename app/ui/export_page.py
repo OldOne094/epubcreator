@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -21,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.state import BookState
-from app.ui.widgets import PageHeader, Section, muted_label
+from app.ui.widgets import PageHeader, Section, labeled_row, muted_label
 
 
 class ExportPage(QWidget):
@@ -47,21 +46,24 @@ class ExportPage(QWidget):
         self.version_combo.addItem("EPUB 3 (موصى به)", 3)
         self.version_combo.addItem("EPUB 2 (توافق أوسع)", 2)
         self.version_combo.currentIndexChanged.connect(self._on_version)
-        form.addRow(QLabel("الإصدار"), self.version_combo)
+        self.version_combo.setAccessibleName("إصدار EPUB")
+        labeled_row(form, "الإصدار", self.version_combo)
 
         dest_row = QHBoxLayout()
         dest_row.setSpacing(8)
         self.destination = QLineEdit()
         self.destination.setPlaceholderText("مسار حفظ ملف .epub (فارغ = يُطلب عند التصدير)")
+        self.destination.setAccessibleName("وجهة الحفظ")
         browse = QPushButton("تصفح…")
         browse.setCursor(Qt.CursorShape.PointingHandCursor)
         browse.clicked.connect(self._browse_destination)
         dest_row.addWidget(self.destination, 1)
         dest_row.addWidget(browse)
-        form.addRow(QLabel("الوجهة"), dest_row)
+        labeled_row(form, "الوجهة", dest_row, buddy=self.destination)
 
         self.book_info = muted_label("")
-        form.addRow(QLabel("الكتاب"), self.book_info)
+        self.book_info.setAccessibleName("معلومات الكتاب")
+        labeled_row(form, "الكتاب", self.book_info)
         section.layout.addLayout(form)
         outer.addWidget(section)
 
@@ -86,6 +88,8 @@ class ExportPage(QWidget):
         result_section = Section("تقرير التحقق", "النتيجة تظهر هنا بعد التصدير.")
         self.report_list = QListWidget()
         self.report_list.setMinimumHeight(140)
+        self.report_list.setAccessibleName("تقرير التحقق")
+        self.report_list.setAccessibleDescription("نتائج فحص الكتاب بعد التصدير")
         result_section.layout.addWidget(self.report_list)
         self.open_folder_button = QPushButton("فتح مجلد الإخراج")
         self.open_folder_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -123,9 +127,11 @@ class ExportPage(QWidget):
     def _open_folder(self) -> None:
         if not self._last_dest:
             return
-        import subprocess
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
 
-        subprocess.Popen(["explorer", "/select,", str(self._last_dest)])
+        # متعدد المنصات (كان explorer الحصري يفشل بصمت على Linux/macOS)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._last_dest.parent)))
 
     # ---- تصدير ----
     def trigger_export(self) -> None:
@@ -203,18 +209,34 @@ class ExportPage(QWidget):
 
     def show_result(self, path: Path, issues) -> None:  # noqa: ANN001
         """عرض نتيجة التصدير + تقرير التحقق (issues: قائمة ValidationIssue)."""
+        from app.ui.themes import tokens
+
         self._last_dest = path
         self.progress.hide()
         self.report_list.clear()
+        # ألوان مقروءة على الفاتح والداكن (تباين AA) بدل القيم المصلّبة
+        t = None
+        try:
+            from PySide6.QtWidgets import QApplication
+
+            app = QApplication.instance()
+            sheet = app.styleSheet() if app is not None else ""
+            t = tokens("dark" if "#16171a" in sheet else "light")
+        except Exception:  # noqa: BLE001
+            t = None
+        if t is None:
+            from app.ui.themes import _LIGHT
+
+            t = _LIGHT
         if issues:
             for issue in issues:
                 item = QListWidgetItem(issue.message)
                 if issue.severity == "error":
-                    item.setForeground(QColor("#b5452f"))
+                    item.setForeground(QColor(t["danger"]))
                 else:
-                    item.setForeground(QColor("#a8761d"))
+                    item.setForeground(QColor(t["accent_text"]))
                 self.report_list.addItem(item)
         else:
             item = QListWidgetItem("الكتاب سليم — لا توجد أخطاء تحقق.")
-            item.setForeground(QColor("#2e7d46"))
+            item.setForeground(QColor(t["ok"]))
             self.report_list.addItem(item)

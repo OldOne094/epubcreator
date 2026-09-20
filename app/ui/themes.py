@@ -16,9 +16,12 @@ _LIGHT = {
     "surface_alt": "#ece7dc", # تمرير/ثانوي
     "border": "#e0d9ca",      # حدود الحقول
     "text": "#2b2620",        # النص الأساسي
-    "muted": "#8b8172",       # نص ثانوي
-    "accent": "#a8761d",      # الذهبي الأساسي
+    "muted": "#6f675c",       # نص ثانوي (تباين AA على الأبيض)
+    "accent": "#a8761d",      # الذهبي الأساسي (زخرفة/حدود)
     "accent_dark": "#8a5f12",
+    "accent_text": "#8a5f12", # نص ذهبي على الفاتح (تباين AA)
+    "primary": "#8a5f12",     # خلفية الزر الأساسي (أبيض عليها AA)
+    "primary_hover": "#6f4c0e",
     "accent_soft": "#f5ecd4", # خلفية التحديد
     "danger": "#b5452f",
     "ok": "#2e7d46",
@@ -33,6 +36,10 @@ _DARK = {
     "muted": "#9a9ca4",
     "accent": "#d9a441",
     "accent_dark": "#e0b257",
+    "accent_text": "#e8bd63", # نص ذهبي على الداكن (تباين AA)
+    "primary": "#d9a441",     # خلفية الزر الأساسي (نص داكن عليها AA)
+    "primary_text": "#1c1a15",
+    "primary_hover": "#e8bd63",
     "accent_soft": "#322916",
     "danger": "#e0634e",
     "ok": "#4da06a",
@@ -45,8 +52,9 @@ def tokens(name: str) -> dict[str, str]:
 
 
 def _base(t: dict[str, str]) -> str:
+    primary_text = t.get("primary_text", "#ffffff")
     return f"""
-* {{ font-family: 'Segoe UI'; font-size: 13px; }}
+* {{ font-size: 13px; }}
 QMainWindow, QDialog {{ background: {t['bg']}; }}
 QWidget {{ color: {t['text']}; }}
 QToolTip {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['border']}; border-radius: 6px; padding: 5px 8px; }}
@@ -57,7 +65,7 @@ QMenuBar::item {{ background: transparent; padding: 6px 10px; border-radius: 6px
 QMenuBar::item:selected {{ background: {t['surface_alt']}; }}
 QMenu {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 8px; padding: 6px; }}
 QMenu::item {{ padding: 8px 22px; border-radius: 6px; }}
-QMenu::item:selected {{ background: {t['accent_soft']}; color: {t['accent']}; }}
+QMenu::item:selected {{ background: {t['accent_soft']}; color: {t['accent_text']}; }}
 
 QLabel {{ background: transparent; }}
 QLabel#Muted {{ color: {t['muted']}; font-size: 12.5px; }}
@@ -67,7 +75,7 @@ QLabel#SectionTitle {{ font-size: 15px; font-weight: 600; }}
 QLabel#SectionDesc {{ color: {t['muted']}; font-size: 12px; }}
 QLabel#EmptyTitle {{ font-size: 20px; font-weight: 600; }}
 QLabel#EmptyHint {{ color: {t['muted']}; font-size: 13.5px; }}
-QLabel#Badge {{ background: {t['accent_soft']}; color: {t['accent']}; border-radius: 9px; padding: 3px 10px; font-weight: 600; font-size: 11.5px; }}
+QLabel#Badge {{ background: {t['accent_soft']}; color: {t['accent_text']}; border-radius: 9px; padding: 3px 10px; font-weight: 600; font-size: 11.5px; }}
 
 QFrame#Card {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 12px; }}
 QFrame#Banner {{ background: {t['accent_soft']}; border: 1px solid {t['accent']}; border-radius: 10px; }}
@@ -94,12 +102,14 @@ QPushButton {{
 QPushButton:hover {{ background: {t['surface_alt']}; }}
 QPushButton:pressed {{ background: {t['border']}; }}
 QPushButton:disabled {{ color: {t['muted']}; border-color: {t['border']}; }}
+QPushButton:focus {{ border: 2px solid {t['accent']}; }}
 QPushButton#Primary {{
-    background: {t['accent']}; color: #ffffff; border: none; font-weight: 600; padding: 9px 20px;
+    background: {t['primary']}; color: {primary_text}; border: none; font-weight: 600; padding: 9px 20px;
 }}
-QPushButton#Primary:hover {{ background: {t['accent_dark']}; }}
-QPushButton#Primary:pressed {{ background: {t['accent']}; }}
+QPushButton#Primary:hover {{ background: {t['primary_hover']}; }}
+QPushButton#Primary:pressed {{ background: {t['primary_hover']}; }}
 QPushButton#Primary:disabled {{ background: {t['border']}; color: {t['muted']}; }}
+QPushButton#Primary:focus {{ border: 2px solid {t['accent']}; }}
 QPushButton#Ghost {{ background: transparent; border: none; color: {t['accent']}; padding: 6px 10px; }}
 QPushButton#Ghost:hover {{ color: {t['accent_dark']}; background: transparent; }}
 QPushButton#Danger {{ background: transparent; border: 1px solid {t['danger']}; color: {t['danger']}; }}
@@ -109,17 +119,18 @@ QPushButton#Nav {{
     padding: 11px 14px; font-size: 13.5px; color: {t['text']};
 }}
 QPushButton#Nav:hover {{ background: {t['surface_alt']}; }}
-QPushButton#Nav:checked {{ background: {t['accent_soft']}; color: {t['accent']}; font-weight: 600; }}
+QPushButton#Nav:checked {{ background: {t['accent_soft']}; color: {t['accent_text']}; font-weight: 600; }}
 QPushButton#Template {{
     background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 10px;
     padding: 12px; text-align: center; font-weight: 500;
 }}
 QPushButton#Template:hover {{ border-color: {t['accent']}; }}
-QPushButton#Template:checked {{ border: 2px solid {t['accent']}; background: {t['accent_soft']}; color: {t['accent']}; }}
+QPushButton#Template:checked {{ border: 2px solid {t['accent']}; background: {t['accent_soft']}; color: {t['accent_text']}; }}
 
 QListWidget {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 10px; outline: 0; padding: 4px; }}
+QListWidget:focus {{ border: 1px solid {t['accent']}; }}
 QListWidget::item {{ padding: 9px 12px; border-radius: 7px; }}
-QListWidget::item:selected {{ background: {t['accent_soft']}; color: {t['accent']}; }}
+QListWidget::item:selected {{ background: {t['accent_soft']}; color: {t['accent_text']}; }}
 QListWidget::item:hover {{ background: {t['surface_alt']}; }}
 
 QTextBrowser {{
@@ -136,7 +147,8 @@ QScrollBar::handle:horizontal {{ background: {t['border']}; border-radius: 5px; 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
 QSplitter::handle {{ background: {t['border']}; }}
-QSplitter::handle:horizontal {{ width: 1px; }}
+QSplitter::handle:horizontal {{ width: 6px; }}
+QSplitter::handle:vertical {{ height: 6px; }}
 QProgressBar {{ background: {t['surface_alt']}; border: none; border-radius: 6px; text-align: center; }}
 QProgressBar::chunk {{ background: {t['accent']}; border-radius: 6px; }}
 QCheckBox, QRadioButton {{ spacing: 8px; }}
@@ -153,7 +165,6 @@ def stylesheet(name: str) -> str:
 
 
 def apply_theme(app, name: str) -> None:  # noqa: ANN001
-    """تطبيق الثيم (بالتوكنات) وتعيين خط الواجهة على QApplication."""
-    font = QFont("Segoe UI", 10)
-    app.setFont(font)
+    """تطبيق الثيم (بالتوكنات) مع خط النظام الافتراضي (لا فرض لاتيني يكسر العربية)."""
+    app.setFont(QFont())
     app.setStyleSheet(stylesheet(name))

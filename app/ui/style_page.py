@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -24,7 +23,7 @@ from PySide6.QtWidgets import (
 import app.core.templates as core_templates
 from app.models import ParagraphFormat
 from app.state import BookState
-from app.ui.widgets import PageHeader, Section, muted_label
+from app.ui.widgets import PageHeader, Section, labeled_row, muted_label
 
 _ALIGNMENTS = (
     ("justify", "مضبوط (justify)"),
@@ -131,8 +130,8 @@ class StylePage(QWidget):
         self.body_font = _combo(list(_FONT_FAMILIES))
         self.title_font.currentTextChanged.connect(self._on_fonts)
         self.body_font.currentTextChanged.connect(self._on_fonts)
-        form.addRow(QLabel("خط العناوين"), self.title_font)
-        form.addRow(QLabel("خط النص"), self.body_font)
+        labeled_row(form, "خط العناوين", self.title_font)
+        labeled_row(form, "خط النص", self.body_font)
         section.layout.addLayout(form)
         parent.addWidget(section)
 
@@ -168,14 +167,14 @@ class StylePage(QWidget):
         ):
             box.currentIndexChanged.connect(self._on_paragraph)
 
-        form.addRow(QLabel("المحاذاة"), self.alignment)
-        form.addRow(QLabel("ارتفاع السطر"), self.line_height)
-        form.addRow(QLabel("مسافة بعد الفقرة"), self.spacing_after)
-        form.addRow(QLabel("إزاحة السطر الأول"), self.first_indent)
-        form.addRow(QLabel("حجم الخط"), self.font_size)
-        form.addRow(QLabel("هامش أعلى"), self.margin_top)
-        form.addRow(QLabel("هامش أسفل"), self.margin_bottom)
-        form.addRow(QLabel("اللون"), self.color_button)
+        labeled_row(form, "المحاذاة", self.alignment)
+        labeled_row(form, "ارتفاع السطر", self.line_height)
+        labeled_row(form, "مسافة بعد الفقرة", self.spacing_after)
+        labeled_row(form, "إزاحة السطر الأول", self.first_indent)
+        labeled_row(form, "حجم الخط", self.font_size)
+        labeled_row(form, "هامش أعلى", self.margin_top)
+        labeled_row(form, "هامش أسفل", self.margin_bottom)
+        labeled_row(form, "اللون", self.color_button)
 
         two_col = QHBoxLayout()
         first = QVBoxLayout()

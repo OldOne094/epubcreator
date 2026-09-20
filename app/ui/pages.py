@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.state import BookState
-from app.ui.widgets import PageHeader, Section, muted_label
+from app.ui.widgets import PageHeader, Section, labeled_row, muted_label
 
 
 class ChapterEditor(QWidget):
@@ -46,9 +46,13 @@ class ChapterEditor(QWidget):
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
-        left_layout.addWidget(QLabel("فصول الكتاب"))
+        chapters_label = QLabel("فصول الكتاب")
+        left_layout.addWidget(chapters_label)
         self.chapter_list = QListWidget()
         self.chapter_list.setToolTip("اختر فصلًا للتعديل")
+        self.chapter_list.setAccessibleName("قائمة الفصول")
+        self.chapter_list.setAccessibleDescription("اختر فصلًا لتحرير عنوانه ونصه")
+        chapters_label.setBuddy(self.chapter_list)
         self.chapter_list.setMinimumWidth(190)
         self.chapter_list.currentRowChanged.connect(self._on_row_changed)
         left_layout.addWidget(self.chapter_list, 1)
@@ -90,9 +94,12 @@ class ChapterEditor(QWidget):
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("عنوان الفصل")
         self.title_edit.setToolTip("عنوان الفصل الحالي")
+        self.title_edit.setAccessibleName("عنوان الفصل")
         self.title_edit.textChanged.connect(self._on_title_edited)
         right_layout.addWidget(self.title_edit)
         self.body_edit = QTextEdit()
+        self.body_edit.setAccessibleName("نص الفصل")
+        self.body_edit.setAccessibleDescription("سطر فارغ يعني فقرة جديدة")
         self.body_edit.setToolTip("نص الفصل (سطر فارغ = فقرة جديدة، والأسطر القصيرة تُحفظ مستقلة)")
         right_layout.addWidget(self.body_edit, 1)
         self.count_label = muted_label("")
@@ -273,8 +280,10 @@ class MetadataPage(QWidget):
         for code, name in _LANGUAGES:
             self.language.addItem(name, code)
         self.language.currentIndexChanged.connect(self._on_language_changed)
+        self.language.setAccessibleName("اللغة")
         self.language_custom = QLineEdit()
         self.language_custom.setPlaceholderText("رمز اللغة BCP47 (مثال: ur)")
+        self.language_custom.setAccessibleName("رمز اللغة المخصص")
         self.language_custom.setToolTip("رمز لغة صالح: حروف وأرقام وشرطات فقط (مثال: ar، en-US)")
         self.language_custom.textChanged.connect(self._on_edited)
         self.language_custom.hide()
@@ -282,6 +291,7 @@ class MetadataPage(QWidget):
         for attr, label, group in _FIELD_MAP:
             if attr == "description":
                 widget: QWidget = self.description
+                buddy: QWidget = self.description
             elif attr == "language":
                 lang_box = QVBoxLayout()
                 lang_box.setContentsMargins(0, 0, 0, 0)
@@ -291,13 +301,15 @@ class MetadataPage(QWidget):
                 container = QWidget()
                 container.setLayout(lang_box)
                 widget = container
+                buddy = self.language
             else:
                 edit = QLineEdit()
                 edit.textChanged.connect(self._on_edited)
                 self._fields[attr] = edit
                 widget = edit
+                buddy = edit
             form = basic_form if group == "بيانات أساسية" else extra_form
-            form.addRow(QLabel(label), widget)
+            labeled_row(form, label, widget, buddy=buddy)
 
         basic.layout.addLayout(basic_form)
         extra.layout.addLayout(extra_form)

@@ -29,10 +29,10 @@
 - Pillow 12.3.0 — الغلاف/الصور
 - platformdirs 4.11.0 — مسارات config/log
 - arabic_reshaper 3.0.1 + python-bidi 0.6.11 — تشكيل/ترتيب الغلاف
-- PyInstaller 6.21.0 (build فقط) — الحزمة `dist\EPubCreator.exe` ≈ 57MB
+- PyInstaller 6.21.0 (build فقط) — الحزمة `dist\EPubCreator.exe` ≈ 54.9MB
 - pytest — dev
 
-لا يُستخدم: EbookLib (تفادي AGPL)، WebEngine (الحجم)، قاعدة بيانات، git، CI.
+لا يُستخدم: EbookLib (تفادي AGPL)، WebEngine (الحجم)، قاعدة بيانات، git.
 
 ---
 
@@ -117,8 +117,8 @@ epubcreator/
 │  │  ├─ dialogs.py      # error_dialog + ProgressDialog (غير مستخدم)
 │  │  └─ themes.py       # ثيمات فاتح/داكن (QSS بتوكنات)
 │  └─ assets/            # مجلدات فارغة (PLACEHOLDER) — تُضمَّن في الحزمة بلا فائدة
-├─ tests/                # 154 اختباراً (pytest) — يمرّون جميعاً
-├─ dist/EPubCreator.exe  # ~56.7MB
+├─ tests/                # 209 اختباراً (pytest) — يمرّون جميعاً
+├─ dist/EPubCreator.exe  # ~54.9MB
 ├─ epubcreator.spec      # مخطط PyInstaller النشط
 ├─ EPubCreatorOne.spec   # مخطط قديم (ينقصه arabic_reshaper/bidi)
 ├─ build/                # epubcreator/ + EPubCreatorOne/ (أثر بناء قديم)
@@ -216,7 +216,7 @@ last_css, last_folder, last_font, epub_version. مفتاح `theme` يُقرأ/ي
 
 ## [TESTING]
 
-pytest، 154 اختباراً يمرّون (تحقق: `154 passed in 24.76s`). تغطية: clean/format/importers
+pytest، 209 اختباراً يمرّون. تغطية: clean/format/importers
 (5 صيغ)/epub/validate/cover (formats+shape)/preview/state/undo/workers/pages (offscreen)/themes.
 ثغرات تغطية: تصدير الميتاداتا، alignment في CSS، استيراد دفعة عبر الواجهة، حفظ مشروع.
 
